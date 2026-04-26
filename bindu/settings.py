@@ -586,6 +586,18 @@ class HydraSettings(BaseSettings):
     cache_ttl: int = 300  # Token introspection cache TTL (5 minutes)
     max_cache_size: int = 1000  # Maximum cache entries
 
+    # Scopes that bypass the introspection cache. Tokens carrying any of
+    # these are re-introspected against Hydra on every request so that
+    # revocations take effect immediately. Matches the in-process default
+    # in ``bindu.server.middleware.auth.hydra.DEFAULT_SENSITIVE_SCOPES``;
+    # override per-deployment to widen or shrink the set.
+    sensitive_scopes: list[str] = [
+        "admin",
+        "agent:execute",
+        "payment:capture",
+        "key:rotate",
+    ]
+
     # Auto-registration settings
     auto_register_agents: bool = True  # Auto-register agents as OAuth clients
     agent_client_prefix: str = "agent-"  # Prefix for agent client IDs

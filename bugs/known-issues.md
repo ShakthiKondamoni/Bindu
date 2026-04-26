@@ -1,6 +1,6 @@
 # Known Issues
 
-_Last updated: 2026-04-20 — recipes/SSE/DID work on branch `feat/gateway-recipes` added 15 gateway entries (5 medium, 6 low, 5 nit) and narrowed two existing ones (`tool-name-collisions-silent` → `parse-agent-from-tool-greedy-mismatch`, `signature-verification-ok-when-unsigned` → `signature-verification-non-text-parts-unverified`) to the residual sub-bugs after partial resolutions landed. `did-document-endpoint-returns-raw-dict` removed — see [`core/2026-04-19-did-document-endpoint-raw-dict.md`](./core/2026-04-19-did-document-endpoint-raw-dict.md)._
+_Last updated: 2026-04-26 — `hydra-token-cache-revocation-lag` removed. The Hydra middleware now skips its introspection cache for sensitive scopes (`admin`, `agent:execute`, `payment:capture`, `key:rotate`) and exposes `invalidate_token_cache` / `revoke_token` for in-process invalidation. See [`core/2026-04-26-hydra-token-cache-revocation-lag.md`](./core/2026-04-26-hydra-token-cache-revocation-lag.md). Previously: 2026-04-20 — recipes/SSE/DID work on branch `feat/gateway-recipes` added 15 gateway entries (5 medium, 6 low, 5 nit) and narrowed two existing ones (`tool-name-collisions-silent` → `parse-agent-from-tool-greedy-mismatch`, `signature-verification-ok-when-unsigned` → `signature-verification-non-text-parts-unverified`) to the residual sub-bugs after partial resolutions landed. `did-document-endpoint-returns-raw-dict` removed — see [`core/2026-04-19-did-document-endpoint-raw-dict.md`](./core/2026-04-19-did-document-endpoint-raw-dict.md)._
 
 This file is user-facing. It's the first thing a new contributor or
 operator reads to calibrate expectations: what Bindu doesn't do
@@ -42,7 +42,7 @@ Issue referencing the slug (e.g. "Fixes `context-window-hardcoded`").
 | Subsystem | High | Medium | Low | Nit |
 |---|---:|---:|---:|---:|
 | [Gateway](#gateway) | 2 | 14 | 19 | 9 |
-| [Bindu Core (Python)](#bindu-core-python) | 4 | 7 | 2 | 0 |
+| [Bindu Core (Python)](#bindu-core-python) | 4 | 6 | 2 | 0 |
 | [SDKs (TypeScript)](#sdks-typescript) | — | — | — | — |
 | [Frontend](#frontend) | — | — | — | — |
 
@@ -904,7 +904,6 @@ explains it.
 | [`authz-scope-check-behind-optional-flag`](#authz-scope-check-behind-optional-flag) | medium (sec) | Scope check is optional; flipping the flag removes all authz |
 | [`did-admission-control-missing`](#did-admission-control-missing) | medium (sec) | No allowlist — any Hydra-registered DID can call |
 | [`cors-allow-credentials-with-user-origins`](#cors-allow-credentials-with-user-origins) | medium (sec) | Credentials + loose origins risk credentialed CORS |
-| [`hydra-token-cache-revocation-lag`](#hydra-token-cache-revocation-lag) | medium (sec) | Revoked tokens valid for up to 5 min |
 | [`task-cancel-check-then-act-race`](#task-cancel-check-then-act-race) | medium | TOCTOU between state check and scheduler cancel |
 | [`no-rate-limit-or-quota-per-caller`](#no-rate-limit-or-quota-per-caller) | medium | No per-caller quota; single caller can exhaust resources |
 | [`context-id-silent-fallback`](#context-id-silent-fallback) | medium | Malformed `context_id` silently creates a new context |
@@ -1128,22 +1127,6 @@ that the supplied origins are compatible with `allow_credentials=True`.
 of known origins. Never include `"null"`, `"*"`, or a
 reflected-origin scheme. If possible, terminate CORS at a reverse
 proxy and leave `cors_origins=None` on the Bindu app.
-**Tracking:** _(no issue yet)_
-
-### hydra-token-cache-revocation-lag
-
-**Severity:** medium (security, revocation)
-**Summary:** The Hydra middleware caches introspection results for
-up to 300 s (`CACHE_TTL_SECONDS = 300`) in
-[`bindu/server/middleware/auth/hydra.py`](../bindu/server/middleware/auth/hydra.py).
-Revoking a token in Hydra does not clear this in-process cache, so
-revoked tokens remain valid for up to five minutes across all Bindu
-instances that already cached them. For sensitive operations
-(admin, payment capture, key rotation) that window is too long.
-**Workaround:** Reduce `CACHE_TTL_SECONDS` for high-risk
-deployments, or disable the cache for specific scopes. The fix is a
-revocation callback from Hydra (or a short TTL with aggressive
-eviction) that invalidates the cache entry on `revoke_token`.
 **Tracking:** _(no issue yet)_
 
 ### task-cancel-check-then-act-race
