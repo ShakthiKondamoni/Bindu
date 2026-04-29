@@ -81,3 +81,91 @@ async def test_resolve_vm_passes_config(mock_boxd, fake_box):
     # auto_suspend goes through LifecycleConfig
     assert box_config.lifecycle is not None
     assert box_config.lifecycle.auto_suspend_timeout == 30
+
+
+# ── _ship_source ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_ship_source_writes_and_extracts(mock_boxd, fake_box, tmp_path):
+    (tmp_path / "agent.py").write_text("# hi\n")
+    fake_box.exec.return_value = _ok_exec_result()
+    p = BoxdRuntimeProvider()
+
+    await p._ship_source(fake_box, tmp_path)
+
+    fake_box.write_file.assert_awaited_once()
+    args = fake_box.write_file.await_args
+    payload, dest = args.args[0], args.args[1]
+    assert isinstance(payload, bytes)
+    assert dest == "/tmp/source.tar.gz"
+
+    # mkdir + tar extract should have been exec'd
+    exec_calls = fake_box.exec.await_args_list
+    assert any(c.args == ("mkdir", "-p", "/app") for c in exec_calls)
+    assert any(
+        c.args == ("tar", "xzf", "/tmp/source.tar.gz", "-C", "/app")
+        for c in exec_calls
+    )
+
+
+# ── _install_deps ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_install_deps_with_pyproject(mock_boxd, fake_box):
+    fake_box.exec.return_value = _ok_exec_result()
+    p = BoxdRuntimeProvider()
+
+    await p._install_deps(fake_box, has_pyproject=True, has_requirements=False)
+
+    exec_calls = fake_box.exec.await_args_list
+    # bindu must always be installed
+    assert any(c.args == ("pip", "install", "bindu") for c in exec_calls)
+    # And pip install -e .
+    assert any(c.args == ("pip", "install", "-e", ".") for c in exec_calls)
+
+
+@pytest.mark.asyncio
+async def test_install_deps_with_requirements(mock_boxd, fake_box):
+    fake_box.exec.return_value = _ok_exec_result()
+    p = BoxdRuntimeProvider()
+
+    await p._install_deps(fake_box, has_pyproject=False, has_requirements=True)
+
+    exec_calls = fake_box.exec.await_args_list
+    assert any(
+        c.args == ("pip", "install", "-r", "/app/requirements.txt")
+        for c in exec_calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_install_deps_pinned_bindu_version(mock_boxd, fake_box):
+    fake_box.exec.return_value = _ok_exec_result()
+    p = BoxdRuntimeProvider()
+
+    await p._install_deps(
+        fake_box,
+        has_pyproject=False,
+        has_requirements=False,
+        bindu_version="0.2.5",
+    )
+
+    exec_calls = fake_box.exec.await_args_list
+    assert any(c.args == ("pip", "install", "bindu==0.2.5") for c in exec_calls)
+
+
+@pytest.mark.asyncio
+async def test_install_deps_raises_on_failure(mock_boxd, fake_box):
+    """Non-zero exit code from pip install should raise."""
+    bad = MagicMock()
+    bad.exit_code = 1
+    bad.stderr = "boom"
+    fake_box.exec.return_value = bad
+    p = BoxdRuntimeProvider()
+
+    with pytest.raises(RuntimeError, match="failed"):
+        await p._install_deps(
+            fake_box, has_pyproject=False, has_requirements=False
+        )

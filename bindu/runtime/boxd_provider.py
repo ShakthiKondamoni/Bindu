@@ -18,6 +18,7 @@ from typing import Any, AsyncIterator, Literal
 
 from bindu.runtime.base import RuntimeHandle, RuntimeProvider, register_provider
 from bindu.runtime.config import RuntimeConfig
+from bindu.runtime.source_packager import build_tarball
 
 
 def _make_compute(**kwargs: Any):
@@ -55,6 +56,40 @@ class BoxdRuntimeProvider(RuntimeProvider):
         if config.image:
             create_kwargs["image"] = config.image
         return await compute.box.create(**create_kwargs)
+
+    async def _ship_source(self, box: Any, source_dir: Path) -> None:
+        """Tar+gzip ``source_dir``, upload, extract to ``/app`` in the VM."""
+        blob = build_tarball(source_dir)
+        await box.write_file(blob, "/tmp/source.tar.gz")
+        await box.exec("mkdir", "-p", "/app")
+        result = await box.exec(
+            "tar", "xzf", "/tmp/source.tar.gz", "-C", "/app"
+        )
+        if getattr(result, "exit_code", 0) != 0:
+            stderr = getattr(result, "stderr", "")
+            raise RuntimeError(f"failed to extract source in VM: {stderr}")
+
+    async def _install_deps(
+        self,
+        box: Any,
+        has_pyproject: bool,
+        has_requirements: bool,
+        bindu_version: str | None = None,
+    ) -> None:
+        """Install bindu + the user's deps inside the VM (in /app)."""
+        bindu_pkg = f"bindu=={bindu_version}" if bindu_version else "bindu"
+        commands: list[tuple[str, ...]] = [("pip", "install", bindu_pkg)]
+        if has_requirements:
+            commands.append(("pip", "install", "-r", "/app/requirements.txt"))
+        if has_pyproject:
+            commands.append(("pip", "install", "-e", "."))
+        for cmd in commands:
+            result = await box.exec(*cmd)
+            if getattr(result, "exit_code", 0) != 0:
+                stderr = getattr(result, "stderr", "")
+                raise RuntimeError(
+                    f"command {cmd} failed in VM: {stderr}"
+                )
 
     async def deploy(
         self,
