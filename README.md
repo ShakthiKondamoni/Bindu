@@ -52,6 +52,8 @@ cd Bindu
 uv sync --dev
 ```
 
+To run the examples you'll need an API key for at least one LLM provider — `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or `MINIMAX_API_KEY`.
+
 ## Quickstart
 
 Build the agent you want, hand it to `bindufy()`, and it's online. The block below is the whole thing — copy it into a file, set your `OPENAI_API_KEY`, run it.
