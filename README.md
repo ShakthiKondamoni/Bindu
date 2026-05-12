@@ -32,7 +32,7 @@
 
 Here's the situation. You built an agent. It works. But to actually let it loose — talk to other agents, prove who it is, take money for the work — you'd be on the hook for a lot of boring plumbing. A DID library to integrate. An OAuth flow to set up. Payment middleware. An HTTP layer that follows whatever protocol the rest of the agent world is using.
 
-Bindu is all of that plumbing, behind one function call. You wrap your handler with `bindufy()`, and a few seconds later your agent is online with its own cryptographic identity, speaking [A2A](https://github.com/a2aproject/A2A) (the protocol other agents already use), and ready to demand USDC on Base before it does any work ([x402](https://github.com/coinbase/x402)). Your handler stays as small as `(messages) -> response`. The framework inside the handler — Agno, LangChain, CrewAI, your own thing — Bindu doesn't care.
+Bindu is all of that plumbing, behind one function call. You wrap your handler with `bindufy()`, and a few seconds later your agent is online with its own cryptographic identity, speaking [A2A](https://github.com/a2aproject/A2A) (the protocol other agents already use), and ready to demand USDC on any EVM chain before it does any work ([x402](https://github.com/coinbase/x402)). Your handler stays as small as `(messages) -> response`. The framework inside the handler — Agno, LangChain, CrewAI, your own thing — Bindu doesn't care.
 
 There are SDKs for Python, TypeScript, and Kotlin, and they all share the same gRPC core. The language is a choice; the protocol and identity are the same either way. When you're ready to go deeper, the [docs](https://docs.getbindu.com) are the next stop.
 
@@ -151,7 +151,7 @@ Every row here links out to the guide that actually goes into it.
 | **A2A JSON-RPC** | The protocol other agents already speak. `message/send`, `tasks/get`, `message/stream` on port 3773. | — |
 | **DID identity** | Every response your agent sends is signed with an Ed25519 key. Callers verify with a W3C DID — there's no shared secret to leak. | [DID.md](docs/DID.md) |
 | **OAuth2 via Hydra** | Scoped tokens (`agent:read`, `agent:write`, `agent:execute`) instead of one bearer that opens every door. | [AUTHENTICATION.md](docs/AUTHENTICATION.md) |
-| **x402 payments** | Flip a flag and the agent demands USDC on Base before your handler ever sees the request. | [PAYMENT.md](docs/PAYMENT.md) |
+| **x402 payments** | Flip a flag and the agent demands USDC before your handler ever sees the request. **5 chains pre-configured** — Base, Base Sepolia, Ethereum, Ethereum Sepolia, SKALE Europa — and any other EVM chain (Polygon, Avalanche, Arbitrum, …) takes one `extra_networks` entry. | [PAYMENT.md](docs/PAYMENT.md) |
 | **Push notifications** | The agent webhooks you when a task changes state. Stop polling. | [NOTIFICATIONS.md](docs/NOTIFICATIONS.md) |
 | **Skills system** | Declare what your agent can do; callers see it on the agent card before they spend a token asking. | [SKILLS.md](docs/SKILLS.md) |
 | **Agent negotiation** | Two agents agree on price, latency, and SLA up front. No surprise bills. | [NEGOTIATION.md](docs/NEGOTIATION.md) |
