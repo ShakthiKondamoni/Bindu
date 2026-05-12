@@ -96,6 +96,78 @@ config = {
 In this configuration, callers can pay **either** 0.1 USDC on Base **or** 0.0001 ETH
 on Ethereum to access the protected methods.
 
+### Reaching networks beyond Base — SKALE as the worked example
+
+The x402 v2 SDK ships built-in pricing for Base mainnet and Base Sepolia only.
+For any other EVM chain — SKALE, Polygon, Avalanche, Ethereum mainnet, etc. —
+two pieces have to line up:
+
+1. **A facilitator that supports the chain.** The facilitator runs the
+   on-chain verification and settlement step. Coinbase's default
+   facilitator (`https://x402.org/facilitator`) supports Base and a handful
+   of non-EVM chains only — it does **not** know SKALE today. To reach
+   SKALE you must point Bindu at a facilitator that does (see [Live
+   facilitator support](#live-facilitator-support) below).
+
+2. **An entry in `extra_networks`.** Bindu's `X402Settings.extra_networks`
+   lets you register the asset metadata for any EVM chain the facilitator
+   you chose advertises. Each entry teaches Bindu how to convert a price
+   like `"0.01"` into atomic units of the right ERC-20 contract on that
+   chain.
+
+The default config already ships one example so the shape is visible:
+
+```python
+# bindu/settings.py
+extra_networks = {
+    "skale-europa": ExtraNetwork(
+        caip2="eip155:1187947933",
+        asset="0x85889c8c714505E0c94b30fcfcF64fE3Ac8FCb20",
+        asset_name="Bridged USDC (SKALE Bridge)",
+        asset_decimals=6,
+        asset_eip712_version="2",
+    ),
+}
+```
+
+With that registered, your agent can use the friendly slug in
+`execution_cost`:
+
+```python
+config = {
+    "execution_cost": [
+        {
+            "amount": "0.01",
+            "token": "USDC",
+            "network": "skale-europa",   # → eip155:1187947933 downstream
+            "pay_to_address": "0xYourSKALEAddress",
+        }
+    ],
+    ...
+}
+```
+
+The same pattern adds Polygon, Avalanche, Ethereum mainnet, or any other
+EVM chain — copy the `ExtraNetwork` block and fill in the chain's CAIP-2
++ USDC contract.
+
+#### Live facilitator support
+
+| Facilitator | Networks | Notes |
+|---|---|---|
+| `https://x402.org/facilitator` (default) | Base, Solana, Algorand, Aptos, Stellar | Coinbase-operated. **No SKALE.** |
+| `https://facilitator.x402.fi` | Base, Polygon, Ethereum, Avalanche, **5 SKALE chains** (Europa, Calypso, Nebula variants), Solana | Multi-chain; cert is currently expired (see [`bugs/known-issues.md`](../bugs/known-issues.md)). |
+
+To switch your agent to a SKALE-aware facilitator, set
+`X402__FACILITATOR_URL=https://facilitator.x402.fi` in your environment
+(or override `app_settings.x402.facilitator_url` in code).
+
+> **Production caveat.** The only SKALE-aware facilitator we've verified
+> at the time of writing has an expired TLS certificate. Production
+> deployments should not silently accept that — either wait for the
+> operator to rotate the cert, or run your own facilitator instance.
+> The shipped configuration assumes Base (the validated default).
+
 ## Setup for Testing
 
 ### 1. Create a Crypto Wallet
