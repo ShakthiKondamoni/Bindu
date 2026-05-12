@@ -19,4 +19,14 @@ jobs:
       - name: Secret Scanning
         uses: trufflesecurity/trufflehog@17456f8c7d042d8c82c9a8ca9e937231f9f42e26  # v3.95.2
         with:
-          extra_args: --results=verified,unknown
+          # Build-fail only on VERIFIED secrets — ones TruffleHog could
+          # authenticate against the real service. Previously we also
+          # failed on "unknown" hits, which produced ~25 false positives
+          # from example DSNs in docker-compose.hydra.yml, kratos /
+          # hydra config samples, *.env.example, and README examples,
+          # against just 2 real verified hits. That made every PR red
+          # and trained reviewers to ignore the check.
+          # An "unknown" hit is still worth investigating, but locally
+          # (`trufflehog git file://. --results=verified,unknown`), not
+          # as a CI gate.
+          extra_args: --results=verified
