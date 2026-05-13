@@ -1,0 +1,323 @@
+Release: x402 v2 Hardening, Private Skills, Multi-Chain Payments
+Version: 2026.20.3
+Date: May 13, 2026
+
+OVERVIEW
+--------
+This release is a security-and-correctness pass with two operator-facing
+features riding along. On the security side, the x402 payment middleware
+was rewritten on top of the x402 SDK v2 — that single migration closes
+four payment-bypass bug classes (body-parse fail-open, replay, unverified
+signatures, skipped balance check) and clears every high-severity x402
+entry from bugs/known-issues.md. Three additional server bug classes are
+closed in this release: context_id parsing now rejects malformed UUIDs
+with JSON-RPC -32602 instead of fabricating new contexts; task cancel is
+now CAS-protected and no longer mis-reports state under a worker race;
+and a new optional `auth.allowed_dids` admission allowlist gates which
+Hydra-registered DIDs can reach handlers at all. The frontend drops
+parquetjs (removing 130+ transitive packages and two unpatched Apache
+Thrift advisories), and roughly 90 Dependabot alerts are patched via
+lock refresh. On the feature side, the x402 middleware is now
+operator-extensible to any EVM chain via `extra_networks` (SKALE Europa
+ships as the worked example), and agents can expose a second skill
+surface — `private_skills` — gated by Hydra auth + a DID allowlist, for
+operators whose skill descriptions are themselves the commercial product.
+Documentation got substantial work: PAYMENT.md and PRIVATE_SKILLS.md
+were rewritten in the README's teaching voice; the README itself was
+slimmed to a transformers-style layout and now leads with the Trade
+Compliance OS pitch.
+
+PROBLEM SOLVED
+--------------
+Before this release:
+- The x402 payment middleware on v0.2.1 carried four payment-bypass
+  shapes: a bare `except Exception` swallowed body-parse errors and
+  fell through to the handler; there was no nonce store so signed
+  payloads could be replayed indefinitely; signature verification was
+  a stub method that never actually ran EIP-712 recovery; and the
+  balance-check path had a fall-through branch that allowed requests
+  when the asset contract had no code on chain. Combined, these were
+  the four high-severity x402 entries in bugs/known-issues.md.
+- `_parse_context_id` in the A2A task manager logged a warning and
+  generated a fresh UUID whenever a client sent a malformed
+  `context_id`. The caller thought they were continuing conversation
+  X and silently started a new isolated one; the old context was
+  orphaned in storage, and an attacker could cheaply inflate storage
+  by sending unbounded distinct garbage values.
+- The cancel_task handler read state, compared to terminal_states,
+  then called `scheduler.cancel_task` with no atomic guarantee between
+  the two steps. A worker that completed mid-cancel left the handler
+  cancelling an already-terminal task and returning a misleading
+  response that didn't reflect the actual final state.
+- After Hydra introspection + DID signature verification, any
+  Hydra-registered DID could call any agent. There was no admission
+  layer above auth: in multi-tenant or shared-Hydra deployments, a
+  third party could `hydra create oauth2-client` with their own DID,
+  obtain a valid token, and burn the agent's compute / LLM budget.
+- Skill descriptions on `/.well-known/agent.json` leaked the
+  operator's product menu to the public. Operators whose skill
+  catalogue IS the commercial product (compliance, legal, regulated
+  workflows) had no way to expose skills to authorized partners
+  without exposing them to the world.
+- x402 v2 ships built-in pricing for Base mainnet and Base Sepolia
+  only. Operators wanting SKALE / Polygon / Avalanche / any other EVM
+  chain had to choose between forking the SDK or shipping dead code.
+  Four prior PRs (#486, #496, #507, #528) attempted patches that the
+  v2 migration invalidated.
+- The frontend depended on parquetjs (inherited unmodified from
+  huggingface/chat-ui) for an HF-internal dataset-export endpoint
+  Bindu doesn't run. parquetjs pulled in Apache Thrift with two
+  unpatched high-severity advisories (path traversal / response
+  splitting in <=0.22.0, uncontrolled recursion in <0.23.0).
+- ~90 Dependabot alerts had accumulated across the Python and JS
+  dependency trees.
+- The TruffleHog pre-commit hook ran with `--results=verified,unknown`,
+  giving a 7% signal-to-noise ratio (2 verified hits out of 27 in a
+  historical scan — the rest were docker-compose DSNs, .env.example
+  files, config samples). Every PR went red on this check; reviewers
+  learned to ignore the alarm.
+- `ty` had accumulated 71 diagnostics since the last cleanup, so the
+  pre-commit ty hook failed for every commit on main.
+
+After this release:
+- x402 middleware delegates verification, settlement, and balance
+  checks to `x402ResourceServer` / `HTTPFacilitatorClient`. The
+  body-parse handler is a narrow `except (JSONDecodeError,
+  UnicodeDecodeError)` returning 402; the new `nonce_store.py` claims
+  `(network, asset, nonce)` BEFORE the facilitator round-trip via
+  Redis SETNX (with InMemoryNonceStore fallback for dev); signature
+  verification runs full EIP-712 recovery on the facilitator; the
+  balance-check fall-through is removed. Real-facilitator smoke
+  confirms forged signatures are rejected with
+  `invalid_exact_evm_signature` before the handler runs.
+- Malformed `context_id` now raises `MalformedContextIdError` from
+  `_parse_context_id`; send_message and stream_message catch it and
+  return a JSON-RPC -32602 ("Invalid params") response echoing the
+  offending value. No storage write, no orphaned context, no
+  amplification primitive.
+- The Storage ABC gains `update_task_state_if(task_id, from_state,
+  to_state) -> bool`. Postgres implements it as a single conditional
+  `UPDATE ... WHERE state = :from RETURNING id`; the in-memory backend
+  implements it as a compare-and-swap with no inter-await yield.
+  cancel_task CAS-claims the transition before signaling the
+  scheduler — on a CAS miss it re-loads and reports the actual
+  post-race state.
+- New `AuthSettings.allowed_dids: list[str] | None = None`. When None
+  (default), behavior is unchanged. When set, the Hydra middleware
+  runs an admission check after signature verification and rejects
+  unlisted DIDs with HTTP 403 before any handler is reached.
+- New `private_skills` and `allowed_dids` keys on AgentManifest. When
+  configured, a second endpoint `/agent/private.json` returns the
+  merged catalog (public + private skills) only to DIDs on the
+  allowlist; opt-in only, the route isn't registered when unused.
+- New `X402Settings.extra_networks` config surface: a Pydantic dict
+  keyed on friendly chain slug carrying CAIP-2, asset address, and
+  EIP-712 domain metadata. SKALE Europa ships as the default entry
+  matching `facilitator.x402.fi`'s `/supported` response. Operators
+  add chains by extending the dict — no Bindu code change required.
+- parquetjs and the unused `/admin/export` route are gone from the
+  frontend. 130+ transitive packages and both Thrift advisories drop
+  out of the lockfile.
+- pypdf, cryptography, cdp-sdk, pynacl, web3, ip-address, and several
+  transitive bumps (aiohttp, urllib3, GitPython, Mako, mistune,
+  langchain-core, python-multipart) land via direct + lock-refresh
+  upgrades.
+- TruffleHog now gates only on verified hits. Unverified hits log as
+  warnings but don't fail the build. Signal-to-noise jumps from 7% to
+  100% on a historical scan of this repo.
+- ty diagnostics are at zero. Several were real (variance issues on
+  `List[…]` parameters narrowed to `Sequence` / `Mapping`); the rest
+  are documented exercising-error-paths in tests or runtime patterns
+  ty doesn't see through.
+
+HEADLINE FEATURES
+-----------------
+Operator-extensible EVM chains for x402
+  Add any EVM chain by extending one Pydantic dict. Each entry registers
+  a money parser scoped to its CAIP-2 so the SDK's built-in Base parser
+  still wins for Base. SKALE Europa ships as the default extra network,
+  matching `facilitator.x402.fi`'s advertised bridged-USDC asset
+  (decimals=6, name="USDC", EIP-712 version="2") exactly.
+
+Private skill catalogs gated by DID allowlist
+  Two new optional keys on AgentManifest — `private_skills` and
+  `allowed_dids` — expose a second endpoint at `/agent/private.json`.
+  The Hydra middleware fronts it like any non-public route; the handler
+  adds an allowlist check that rejects authenticated-but-unlisted DIDs
+  with 403. Closes the IP-leak shape (#538) with auth gating rather than
+  encryption-at-rest; the JWE/E2E option remains as a Phase 2 if a real
+  customer demands "operator doesn't trust the server itself" semantics.
+
+SECURITY
+--------
+- x402 SDK >=2.3.0,<3 (was ==0.2.1). Clears the x402 SDK CVE and
+  replaces the manual middleware with the v2 ResourceServer pattern.
+- All four high-severity x402 bug classes are closed and removed from
+  bugs/known-issues.md. Bindu Core's High count goes from 4 to 0.
+- Three medium-severity server bug classes are closed:
+  `context-id-silent-fallback`, `task-cancel-check-then-act-race`,
+  `did-admission-control-missing`.
+- DID admission control is now configurable (`auth.allowed_dids`).
+  Operators running shared Hydra or multi-tenant deployments can
+  restrict which DIDs reach handlers even when Hydra would issue them
+  a valid token.
+- parquetjs removed: 130+ transitive packages drop out, including the
+  two unpatched Apache Thrift advisories.
+- pynacl ==1.5.0 → >=1.6.2,<2 (libsodium incomplete-disallowed-inputs).
+- web3 ==7.13.0 → >=7.15.0,<8 (SSRF via CCIP Read OffchainLookup).
+- cryptography ==44.0.2 → >=46.0.5,<47.
+- pypdf <6 → >=6.10.2,<7 (clears 44 alerts via lock refresh).
+- cdp-sdk ==0.21.0 → >=1.45.0,<2 (frees the cryptography pin).
+- Frontend: ip-address ^9.0.5 → ^10.1.1 (Address6 XSS); cookie ^0.7.0
+  override; minimatch ^9.0.7 override scoped to typescript-estree.
+- TruffleHog pre-commit hook tightened to `--results=verified` so the
+  scanner stays usable.
+
+PERFORMANCE IMPACT
+------------------
+- x402 v2 middleware: replay short-circuits at the nonce store before
+  any facilitator round-trip, so duplicate-payment requests are now
+  cheaper to reject than they were to accept under v0.2.1.
+- Admission control: a Python `in` check on a list. Operators with
+  long allowlists may want to set a pattern-match variant in a future
+  release (Option B in the design sketch); exact-match is shipping
+  first because it covers the common case.
+- CAS cancel: one extra UPDATE on Postgres, one extra dict read on
+  in-memory storage. Both inside the existing request span.
+- The Storage ABC change is additive: existing backends gain one new
+  method but their hot paths are unchanged.
+
+TESTING
+-------
+- 993 unit tests passing, 3 skipped, 12 warnings, runtime ~3.3s on
+  this machine. ruff clean. ty: 0 diagnostics.
+- 7 new admission tests in
+  tests/unit/server/middleware/test_hydra_admission.py covering the
+  default admit-all behavior, exact-match hits, misses, the deny-all
+  empty-list posture, missing client_did, and a 403-doesn't-forward
+  integration check.
+- 3 new storage CAS tests in tests/unit/server/storage/
+  test_memory_storage.py (CAS success, state mismatch, missing task).
+- 2 new task handler tests covering the cancel race scenario:
+  CAS-success happy path; CAS-failure does NOT signal the scheduler
+  and reports the actual post-race state.
+- 7 new context-id tests in tests/unit/server/test_task_manager.py
+  covering all four `_parse_context_id` branches plus the
+  `_create_error_response` code-override path.
+- 1 new regression test for `send_message` returning -32602 on
+  malformed context_id.
+- 8 new tests for the private-skills endpoint exercising the auth +
+  allowlist gate end-to-end with a stub middleware mirroring how
+  Hydra middleware stamps request.state.user.
+- 11 new tests for `extra_networks` covering schema validation, money
+  parser registration, non-default-decimals (WETH 18-decimals), and
+  fall-through behavior.
+- 10 new nonce-store tests covering key construction, replay
+  rejection, TTL expiry, and concurrent claim races.
+- 9 new x402 middleware tests exercising the full v2 dispatch path
+  with a mocked ResourceServer.
+- 2 opt-in live-facilitator smoke tests at
+  tests/integration/x402/test_skale_facilitator_supported.py (gated
+  on X402_NETWORK_TESTS=1) confirm the shipped SKALE Europa default
+  matches facilitator.x402.fi's `/supported` response.
+
+KNOWN ISSUES
+------------
+- `bugs/known-issues.md::skale-facilitator-cert-expired` (low, ops):
+  the only public x402 facilitator advertising SKALE chains is
+  `facilitator.x402.fi`, whose TLS certificate is currently expired.
+  Bindu's defaults still point at Coinbase's facilitator; SKALE
+  operators set `X402__FACILITATOR_URL` themselves and either accept
+  the cert error or front the upstream with a reverse proxy. This is
+  not a code bug on the Bindu side — see the linked entry for the
+  recommended production posture (self-host `x402-facilitator`).
+- `bugs/known-issues.md::authz-scope-check-behind-optional-flag`
+  (medium, security): the scope-check flag (`auth.require_permissions`)
+  defaults to False and authorization disappears when it's not flipped
+  on. Deferred to the planned Ory Kratos migration rather than patched
+  in place — the entry stays in known-issues.md.
+- `bugs/known-issues.md::no-rate-limit-or-quota-per-caller` (medium):
+  no per-DID quota or body-size limit on the Starlette app. Operators
+  exposing Bindu directly on the public internet should add their own
+  rate limiting at the proxy until this lands natively.
+- The historical Auth0 client_secret values committed in Oct 2025 at
+  e28e3417 are still reachable via `git log` (removed from HEAD but
+  the blob persists). Rotation is an operator action, not a code fix.
+
+FILES CHANGED
+-------------
+Since 2026.20.2: 74 files changed, +5366 insertions, −3946 deletions.
+Headline groupings:
+
+Security & correctness:
+- bindu/server/middleware/auth/hydra.py (admission helper + check)
+- bindu/server/handlers/task_handlers.py (CAS-based cancel)
+- bindu/server/handlers/message_handlers.py (malformed context_id
+  → -32602)
+- bindu/server/task_manager.py (raise instead of fallback;
+  _create_error_response gains optional code override)
+- bindu/server/errors.py (new — MalformedContextIdError)
+- bindu/server/storage/base.py (abstract update_task_state_if)
+- bindu/server/storage/memory_storage.py (in-memory CAS)
+- bindu/server/storage/postgres_storage.py (conditional UPDATE CAS)
+- bindu/settings.py (new auth.allowed_dids + x402.extra_networks)
+- bugs/known-issues.md (six resolved entries removed + counters)
+- bugs/core/2026-05-12-x402-v2-migration-hardening.md (new postmortem)
+
+x402 v2 migration:
+- bindu/server/middleware/x402/ (full rewrite around v2 ResourceServer)
+- bindu/server/middleware/x402/nonce_store.py (new — Redis SETNX +
+  in-memory fallback)
+- bindu/server/applications.py (CAIP-2 normalisation, ExactEvmServerScheme
+  money parser registration for extra networks)
+- tests/unit/server/middleware/x402/* (30 new tests)
+- tests/integration/x402/test_skale_facilitator_supported.py (gated)
+- pyproject.toml (x402 0.2.1 → 2.3.0+; pydantic-settings as direct dep)
+
+Private skills:
+- bindu/common/models.py (AgentManifest gains private_skills,
+  allowed_dids)
+- bindu/penguin/manifest.py, bindufy.py, config_validator.py
+- bindu/server/endpoints/private_agent_card.py (new)
+- bindu/server/endpoints/__init__.py
+- bindu/server/applications.py (conditional route registration)
+- tests/unit/server/endpoints/test_private_agent_card.py (new, 8 tests)
+- examples/private_skills_agent/ (new — ACME Compliance walkthrough)
+- docs/PRIVATE_SKILLS.md (new — teaching-voice doc)
+
+Dependency hygiene:
+- pyproject.toml (pypdf, cryptography, cdp-sdk, pynacl, web3 bumps)
+- uv.lock (refreshed; ~90 Python alerts cleared)
+- frontend/package.json + lockfile (ip-address, cookie, minimatch;
+  parquetjs + @types/parquetjs dropped)
+- frontend/src/routes/admin/export/ (deleted)
+- frontend/src/hooks.server.ts (deprecated PARQUET_EXPORT_SECRET
+  fallback removed)
+
+Documentation:
+- README.md (slimmed to transformers-style; maintainer avatars;
+  multi-chain x402 row; Trade Compliance OS pitch)
+- docs/PAYMENT.md (rewritten in teaching voice; end-to-end paywall
+  walkthrough with success + failure paths against a mock facilitator)
+- docs/PRIVATE_SKILLS.md (new)
+
+CI / type cleanup:
+- .pre-commit-config.yaml (trufflehog gates on verified hits only)
+- bindu/common/protocol/types.py, several handler files (ty: ignore
+  on intentional patterns; real type narrowing where applicable)
+- tests/conftest_stubs.py (deleted — was shadowing real opentelemetry
+  and x402 installs)
+
+Tests (cumulative new):
+- ~80 new unit + integration tests across admission, CAS storage,
+  context-id parsing, private skills endpoint, x402 nonce store,
+  x402 middleware v2 dispatch, and extra_networks.
+
+CONTRIBUTORS
+------------
+Lead maintainer:
+- Raahul Dutta (16 commits since 2026.20.2)
+
+Pair-programming assist:
+- Claude Opus 4.7 (1M context) — co-author on every commit in this
+  release.
