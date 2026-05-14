@@ -170,12 +170,19 @@ app.post("/api/events/:id/action", async (c) => {
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify(msg),
 			});
-			return c.json({ ok: r.ok, status: r.status });
+			return c.json({ ok: r.ok, status: r.status, delivered: r.ok });
 		} catch (err) {
 			return c.json({ ok: false, error: (err as Error).message }, 502);
 		}
 	}
-	return c.json({ ok: true, kind, recorded: true });
+	// approve / decline / pay don't have protocol callbacks wired yet —
+	// don't pretend they do.
+	return c.json({
+		ok: true,
+		kind,
+		recorded: true,
+		protocolMovePending: true,
+	});
 });
 
 serve({ fetch: app.fetch, port: 3787 }, (info) => {

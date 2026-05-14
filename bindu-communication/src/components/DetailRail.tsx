@@ -246,7 +246,7 @@ function ActionPanel({
 	actionLabel: string;
 }) {
 	const [text, setText] = useState("");
-	const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+	const [status, setStatus] = useState<"idle" | "sending" | "delivered" | "recorded" | "error">("idle");
 	const [errMsg, setErrMsg] = useState<string | null>(null);
 
 	async function send(kind: "approve" | "decline" | "input" | "pay", body?: { text?: string }) {
@@ -258,13 +258,25 @@ function ActionPanel({
 				headers: { "content-type": "application/json" },
 				body: JSON.stringify({ kind, ...body }),
 			});
-			const j = await r.json().catch(() => ({}));
-			if (r.ok && j.ok !== false) {
-				setStatus("sent");
-				setText("");
-			} else {
+			const j = (await r.json().catch(() => ({}))) as {
+				ok?: boolean;
+				delivered?: boolean;
+				protocolMovePending?: boolean;
+				error?: string;
+			};
+			if (!r.ok || j.ok === false) {
 				setStatus("error");
 				setErrMsg(j.error ?? `HTTP ${r.status}`);
+				return;
+			}
+			if (j.delivered) {
+				setStatus("delivered");
+				setText("");
+			} else if (j.protocolMovePending) {
+				setStatus("recorded");
+			} else {
+				setStatus("delivered");
+				setText("");
 			}
 		} catch (e) {
 			setStatus("error");
@@ -306,8 +318,15 @@ function ActionPanel({
 					</button>
 				)}
 			</div>
-			{status === "sent" && (
-				<div className="mt-2 text-[10px] text-emerald-700">✓ delivered</div>
+			{status === "delivered" && (
+				<div className="mt-2 text-[10px] text-emerald-700">
+					✓ delivered to agent
+				</div>
+			)}
+			{status === "recorded" && (
+				<div className="mt-2 text-[10px] text-fg-muted">
+					✓ recorded — protocol callback not wired yet (approve/decline/pay land in a later phase)
+				</div>
 			)}
 			{status === "error" && (
 				<div className="mt-2 text-[10px] text-rose-700">✗ {errMsg}</div>
