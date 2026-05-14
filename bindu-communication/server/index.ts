@@ -25,6 +25,17 @@ const subscribers = new Set<(e: EventRow) => void>();
 // browser EventSource can't set headers).
 const REQUIRED_TOKEN = process.env.BINDU_COMMS_TOKEN ?? "";
 
+// Optional webhook auth. When BINDU_WEBHOOK_TOKEN is set, agents must
+// include `Authorization: Bearer <token>` on every webhook POST — which is
+// what the Bindu agent does when global_webhook_token is configured (see
+// bindu/utils/notifications.py:_build_headers). Mismatched / missing →
+// 401. When unset, webhooks stay open (current dev behavior).
+const WEBHOOK_TOKEN = process.env.BINDU_WEBHOOK_TOKEN ?? "";
+
+// Webhook agentId comes off the URL path, so we constrain the shape to
+// rule out traversal-style inputs and pathological lengths.
+const AGENT_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
 function authMiddleware(c: {
 	req: {
 		header: (name: string) => string | undefined;
@@ -67,7 +78,16 @@ async function resolveAgent(agentId: string): Promise<AgentRecord> {
 const app = new Hono();
 
 app.post("/webhooks/bindu/:agentId", async (c) => {
+	if (WEBHOOK_TOKEN) {
+		const header = c.req.header("authorization") ?? "";
+		if (header !== `Bearer ${WEBHOOK_TOKEN}`) {
+			return c.json({ error: "unauthorized" }, 401);
+		}
+	}
 	const agentId = c.req.param("agentId");
+	if (!AGENT_ID_RE.test(agentId)) {
+		return c.json({ error: "invalid-agent-id" }, 400);
+	}
 	const payload = (await c.req.json()) as Record<string, unknown>;
 	const id = String(payload.event_id ?? crypto.randomUUID());
 	const receivedAt = new Date().toISOString();
@@ -187,5 +207,8 @@ serve({ fetch: app.fetch, port: 3787 }, (info) => {
 	console.log(`[bindu-communication] api on http://127.0.0.1:${info.port}`);
 	if (REQUIRED_TOKEN) {
 		console.log(`[bindu-communication] /api/* requires Bearer token`);
+	}
+	if (WEBHOOK_TOKEN) {
+		console.log(`[bindu-communication] webhooks require Bearer token`);
 	}
 });
