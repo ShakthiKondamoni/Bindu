@@ -4,6 +4,8 @@ interface RawWebhook {
 	id: string;
 	agentId: string;
 	receivedAt: string;
+	/** Server-tracked: true the first time this context_id was seen for the agent. */
+	firstContact?: boolean;
 	payload: {
 		event_id?: string;
 		sequence?: number;
@@ -19,22 +21,6 @@ interface RawWebhook {
 		parent_id?: string;
 		properties?: Record<string, unknown>;
 	};
-}
-
-// Track per-agent context_ids so the first sighting of a context renders as
-// first-contact instead of just another state-change.
-const seenContexts = new Map<string, Set<string>>();
-
-function markContext(agentId: string, contextId: string | undefined): boolean {
-	if (!contextId) return false;
-	let set = seenContexts.get(agentId);
-	if (!set) {
-		set = new Set();
-		seenContexts.set(agentId, set);
-	}
-	if (set.has(contextId)) return false;
-	set.add(contextId);
-	return true;
 }
 
 const ATTENTION_STATES = new Set<EventState>([
@@ -141,7 +127,7 @@ export function mapWebhookToEvent(raw: RawWebhook): StreamEvent {
 
 	const isArtifact = p.kind === "artifact-update";
 	const state = normalizeState(p.status?.state, isArtifact);
-	const firstContact = !isArtifact && markContext(raw.agentId, p.context_id);
+	const firstContact = !isArtifact && (raw.firstContact ?? false);
 
 	let kind: EventKind;
 	if (isArtifact) kind = "artifact";

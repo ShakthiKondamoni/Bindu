@@ -1,20 +1,14 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-
-interface LiveEvent {
-	id: string;
-	agentId: string;
-	receivedAt: string;
-	payload: Record<string, unknown>;
-}
-
-interface AgentRecord {
-	id: string;
-	url?: string;
-	did?: unknown;
-	agentCard?: unknown;
-	resolvedAt?: string;
-}
+import {
+	type AgentRecord,
+	type EventRow,
+	listAgents,
+	listRecentEvents,
+	readAgent,
+	recordEvent,
+	writeAgent,
+} from "./db";
 
 // agentId → base URL for callbacks. Hardcoded for the dev fleet; real
 // production deployments would learn this from a signed payload field.
@@ -24,24 +18,18 @@ const AGENT_URLS: Record<string, string> = {
 	gateway: "http://127.0.0.1:3774",
 };
 
-const events: LiveEvent[] = [];
-const agents: Map<string, AgentRecord> = new Map();
-const subscribers = new Set<(e: LiveEvent) => void>();
+const subscribers = new Set<(e: EventRow) => void>();
 
 // Optional dev-time bearer token gate. When BINDU_COMMS_TOKEN is set, /api/*
-// requires Authorization: Bearer <token>. Webhooks stay open (agents
-// authenticate via DID/HMAC headers in the future).
+// requires Authorization: Bearer <token> (or ?token=<token> for SSE, since
+// browser EventSource can't set headers).
 const REQUIRED_TOKEN = process.env.BINDU_COMMS_TOKEN ?? "";
 
-// Accept the token from either the Authorization header (preferred — used
-// by direct API consumers / curl) OR a ?token= query param (the only way
-// browser EventSource can authenticate, since it can't set headers).
-//
-// Query-string tokens get logged by intermediaries, so this is a
-// dev-surface compromise. A real auth track would use cookies or move
-// off EventSource to fetch-stream.
 function authMiddleware(c: {
-	req: { header: (name: string) => string | undefined; query: (name: string) => string | undefined };
+	req: {
+		header: (name: string) => string | undefined;
+		query: (name: string) => string | undefined;
+	};
 }) {
 	if (!REQUIRED_TOKEN) return null;
 	const header = c.req.header("authorization") ?? "";
@@ -52,12 +40,12 @@ function authMiddleware(c: {
 }
 
 async function resolveAgent(agentId: string): Promise<AgentRecord> {
-	const cached = agents.get(agentId);
+	const cached = readAgent(agentId);
 	if (cached?.did && cached?.agentCard) return cached;
 	const base = AGENT_URLS[agentId];
 	const rec: AgentRecord = cached ?? { id: agentId, url: base };
 	if (!base) {
-		agents.set(agentId, rec);
+		writeAgent(rec);
 		return rec;
 	}
 	try {
@@ -72,7 +60,7 @@ async function resolveAgent(agentId: string): Promise<AgentRecord> {
 	} catch (err) {
 		console.warn(`[resolve] ${agentId} failed:`, (err as Error).message);
 	}
-	agents.set(agentId, rec);
+	writeAgent(rec);
 	return rec;
 }
 
@@ -81,17 +69,16 @@ const app = new Hono();
 app.post("/webhooks/bindu/:agentId", async (c) => {
 	const agentId = c.req.param("agentId");
 	const payload = (await c.req.json()) as Record<string, unknown>;
-	const ev: LiveEvent = {
-		id: String(payload.event_id ?? crypto.randomUUID()),
-		agentId,
-		receivedAt: new Date().toISOString(),
-		payload,
-	};
-	events.push(ev);
-	if (events.length > 1000) events.shift();
+	const id = String(payload.event_id ?? crypto.randomUUID());
+	const receivedAt = new Date().toISOString();
+	const firstContact = recordEvent(id, agentId, receivedAt, payload);
+	const ev: EventRow = { id, agentId, receivedAt, payload, firstContact };
 	for (const cb of subscribers) cb(ev);
-	console.log(`[webhook] ${agentId} ${payload.kind ?? "?"} ${payload.task_id ?? ""}`);
-	if (!agents.has(agentId)) {
+	console.log(
+		`[webhook] ${agentId} ${payload.kind ?? "?"} ${payload.task_id ?? ""}${firstContact ? " (first-contact)" : ""}`,
+	);
+	const seen = readAgent(agentId);
+	if (!seen?.agentCard) {
 		resolveAgent(agentId).catch(() => {});
 	}
 	return c.json({ ok: true });
@@ -104,11 +91,11 @@ app.get("/api/events/stream", (c) => {
 	const stream = new ReadableStream({
 		start(controller) {
 			const enc = new TextEncoder();
-			const send = (e: LiveEvent) => {
+			const send = (e: EventRow) => {
 				if (agentFilter && e.agentId !== agentFilter) return;
 				controller.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`));
 			};
-			for (const e of events.slice(-50)) send(e);
+			for (const e of listRecentEvents(50)) send(e);
 			subscribers.add(send);
 			c.req.raw.signal.addEventListener("abort", () => {
 				subscribers.delete(send);
@@ -128,7 +115,7 @@ app.get("/api/events/stream", (c) => {
 app.get("/api/agents", (c) => {
 	const blocked = authMiddleware(c);
 	if (blocked) return c.json(blocked, 401);
-	return c.json(Array.from(new Set(events.map((e) => e.agentId))));
+	return c.json(listAgents());
 });
 
 app.get("/api/agents/:agentId", async (c) => {
@@ -141,12 +128,14 @@ app.get("/api/agents/:agentId", async (c) => {
 // Phase 5: action callbacks. Looks up the source agent, sends a follow-up
 // JSON-RPC message on the same context/task. Only `input` is meaningful end-
 // to-end today; `approve`/`pay`/`decline` are recorded but not yet wired to
-// the underlying protocol moves.
+// the underlying protocol moves (we say so honestly in the response).
 app.post("/api/events/:id/action", async (c) => {
 	const blocked = authMiddleware(c);
 	if (blocked) return c.json(blocked, 401);
 	const evId = c.req.param("id");
-	const ev = events.find((e) => e.id === evId);
+	// Look up the event in the recent buffer. We don't load every historical
+	// row — the action UI only lives on events you can still see.
+	const ev = listRecentEvents(1000).find((e) => e.id === evId);
 	if (!ev) return c.json({ error: "event-not-found" }, 404);
 	const body = (await c.req.json().catch(() => ({}))) as {
 		kind?: "approve" | "decline" | "input" | "pay";
@@ -186,8 +175,6 @@ app.post("/api/events/:id/action", async (c) => {
 			return c.json({ ok: false, error: (err as Error).message }, 502);
 		}
 	}
-	// approve / decline / pay don't have protocol callbacks wired yet —
-	// don't pretend they do.
 	return c.json({
 		ok: true,
 		kind,
