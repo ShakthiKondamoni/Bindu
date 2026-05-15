@@ -1,12 +1,17 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router";
 import clsx from "clsx";
-import { PauseIcon, PlayIcon } from "@phosphor-icons/react";
+import {
+	PauseIcon,
+	PlayIcon,
+	PaperPlaneTiltIcon,
+} from "@phosphor-icons/react";
 import { events as mockEvents } from "~/data/mock";
 import { useUI } from "~/state";
 import { shortDid } from "~/lib/format";
 import { ThreadList } from "./ThreadList";
 import { ThreadView } from "./ThreadView";
+import { ComposeModal } from "./ComposeModal";
 
 export function StreamPanel() {
 	const { agentId = "writer" } = useParams<{ agentId: string }>();
@@ -16,6 +21,7 @@ export function StreamPanel() {
 	const liveEvents = useUI((s) => s.liveEvents);
 	const selectedThreadId = useUI((s) => s.selectedThreadId);
 	const selectThread = useUI((s) => s.selectThread);
+	const [showCompose, setShowCompose] = useState(false);
 
 	const agent = agents.find((a) => a.id === agentId) ?? agents[0];
 
@@ -39,6 +45,14 @@ export function StreamPanel() {
 					<span className="text-[11px] text-fg-dim">{shortDid(agent.did)}</span>
 				</div>
 				<div className="flex items-center gap-3">
+					<button
+						type="button"
+						onClick={() => setShowCompose(true)}
+						className="flex items-center gap-1.5 rounded-md bg-[--color-cobalt] px-2.5 py-1 text-[11px] font-medium text-white shadow-sm transition hover:bg-[--color-cobalt-strong]"
+					>
+						<PaperPlaneTiltIcon size={11} weight="fill" />
+						Compose
+					</button>
 					<div className="flex items-center gap-1.5 text-[11px]">
 						<span
 							className={clsx(
@@ -66,6 +80,7 @@ export function StreamPanel() {
 					</button>
 				</div>
 			</header>
+			<ComposeModal open={showCompose} onClose={() => setShowCompose(false)} />
 
 			{selectedThreadId ? (
 				<ThreadView contextId={selectedThreadId} events={agentEvents} />

@@ -20,6 +20,15 @@ interface RawWebhook {
 		event_type?: string;
 		parent_id?: string;
 		properties?: Record<string, unknown>;
+		// outbound (operator-sent) extras
+		direction?: "in" | "out";
+		from_did?: string;
+		to_agent_id?: string;
+		to_did?: string | null;
+		message_id?: string;
+		text?: string;
+		upstream_status?: number;
+		upstream_error?: string | null;
 	};
 }
 
@@ -50,6 +59,36 @@ function normalizeState(raw: string | undefined, isArtifact: boolean): EventStat
 	if (isArtifact) return "completed";
 	if (!raw) return undefined;
 	return KNOWN_STATES.has(raw as EventState) ? (raw as EventState) : undefined;
+}
+
+function mapOutboundEvent(raw: RawWebhook): StreamEvent {
+	const p = raw.payload;
+	const upstreamOk =
+		!p.upstream_error && (p.upstream_status ?? 0) >= 200 && (p.upstream_status ?? 0) < 300;
+	const summary = p.upstream_error
+		? `Send failed: ${p.upstream_error.slice(0, 80)}`
+		: `“${(p.text ?? "").slice(0, 120)}”`;
+	return {
+		id: raw.id,
+		agentId: raw.agentId,
+		ts: (p.timestamp ?? raw.receivedAt).slice(11, 19),
+		relTs: "just now",
+		counterparty: {
+			name: p.to_agent_id ?? "agent",
+			did: p.to_did ?? `did:bindu:?:${p.to_agent_id ?? "?"}`,
+			trust: "known",
+		},
+		kind: "human-action",
+		state: upstreamOk ? "submitted" : p.upstream_error ? "failed" : "pending",
+		summary,
+		signed: false,
+		verify: {
+			signature: false,
+			didMatch: false,
+			nonce: (p.message_id ?? "").slice(0, 8) || "—",
+		},
+		payload: JSON.stringify(p, null, 2),
+	};
 }
 
 function mapGatewayEvent(raw: RawWebhook): StreamEvent {
@@ -124,6 +163,7 @@ export function mapWebhookToEvent(raw: RawWebhook): StreamEvent {
 	const p = raw.payload;
 
 	if (p.kind === "gateway-event") return mapGatewayEvent(raw);
+	if (p.kind === "outbound") return mapOutboundEvent(raw);
 
 	const isArtifact = p.kind === "artifact-update";
 	const state = normalizeState(p.status?.state, isArtifact);

@@ -243,6 +243,129 @@ app.post("/api/ecosystem", async (c) => {
 	return c.json(rec, 201);
 });
 
+// Step 2: compose. Operator sends an outbound `message/send` to a known
+// agent. We record it locally under agentId="outbox" so the new thread
+// shows up immediately in the inbox UI (the recipient's lifecycle
+// webhooks, if it's configured to push back to us, will arrive later
+// against its own agentId, so they appear as a separate thread on that
+// agent's lane — that's a known dev-surface duality we'll fix when we
+// teach comms to correlate outbound→inbound by context_id across agents).
+const OUTBOX_AGENT_ID = "outbox";
+const OPERATOR_DID =
+	process.env.BINDU_COMMS_OPERATOR_DID ?? "did:bindu:operator:local";
+
+app.post("/api/compose", async (c) => {
+	const blocked = authMiddleware(c);
+	if (blocked) return c.json(blocked, 401);
+	const body = (await c.req.json().catch(() => ({}))) as {
+		agentId?: string;
+		text?: string;
+		contextId?: string;
+	};
+	const targetId = (body.agentId ?? "").trim();
+	const text = (body.text ?? "").trim();
+	if (!targetId || !AGENT_ID_RE.test(targetId)) {
+		return c.json({ error: "invalid-agent-id" }, 400);
+	}
+	if (!text) {
+		return c.json({ error: "empty-text" }, 400);
+	}
+	const target = readAgent(targetId);
+	const base = target?.url ?? AGENT_URLS[targetId];
+	if (!base) {
+		return c.json({ error: "unknown-agent", detail: targetId }, 404);
+	}
+
+	const contextId = body.contextId ?? crypto.randomUUID();
+	const taskId = crypto.randomUUID();
+	const messageId = crypto.randomUUID();
+
+	const rpc = {
+		jsonrpc: "2.0",
+		id: crypto.randomUUID(),
+		method: "message/send",
+		params: {
+			message: {
+				role: "user",
+				kind: "message",
+				parts: [{ kind: "text", text }],
+				messageId,
+				contextId,
+				taskId,
+				metadata: { from_did: OPERATOR_DID },
+			},
+			configuration: { acceptedOutputModes: ["application/json"] },
+		},
+	};
+
+	let upstreamStatus = 0;
+	let upstreamBody: unknown = null;
+	let upstreamError: string | null = null;
+	try {
+		const r = await fetch(base, {
+			method: "POST",
+			headers: { "content-type": "application/json" },
+			body: JSON.stringify(rpc),
+		});
+		upstreamStatus = r.status;
+		upstreamBody = await r.json().catch(() => null);
+	} catch (err) {
+		upstreamError = (err as Error).message;
+	}
+
+	const now = new Date().toISOString();
+	const outboundEvent = {
+		event_id: crypto.randomUUID(),
+		timestamp: now,
+		kind: "outbound",
+		direction: "out",
+		from_did: OPERATOR_DID,
+		to_agent_id: targetId,
+		to_did: target?.did
+			? (target.did as { id?: string }).id ?? null
+			: null,
+		context_id: contextId,
+		task_id: taskId,
+		message_id: messageId,
+		text,
+		upstream_status: upstreamStatus,
+		upstream_error: upstreamError,
+	} as Record<string, unknown>;
+
+	const recordedId = String(outboundEvent.event_id);
+	recordEvent(recordedId, OUTBOX_AGENT_ID, now, outboundEvent);
+	for (const cb of subscribers) {
+		cb({
+			id: recordedId,
+			agentId: OUTBOX_AGENT_ID,
+			receivedAt: now,
+			payload: outboundEvent,
+			firstContact: true,
+		});
+	}
+	if (!readAgent(OUTBOX_AGENT_ID)) {
+		writeAgent({
+			id: OUTBOX_AGENT_ID,
+			source: "webhook",
+			addedAt: now,
+		});
+	}
+
+	if (upstreamError) {
+		return c.json(
+			{ ok: false, error: "send-failed", detail: upstreamError, contextId, taskId },
+			502,
+		);
+	}
+	return c.json({
+		ok: upstreamStatus >= 200 && upstreamStatus < 300,
+		status: upstreamStatus,
+		contextId,
+		taskId,
+		response: upstreamBody,
+	});
+});
+
 // Phase 5: action callbacks. Looks up the source agent, sends a follow-up
 // JSON-RPC message on the same context/task. Only `input` is meaningful end-
 // to-end today; `approve`/`pay`/`decline` are recorded but not yet wired to
