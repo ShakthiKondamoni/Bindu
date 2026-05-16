@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { NavLink } from "react-router";
-import { PlusIcon, GlobeIcon } from "@phosphor-icons/react";
-import { scopes } from "~/data/mock";
+import {
+	PlusIcon,
+	GlobeIcon,
+	TrayIcon,
+	PaperPlaneTiltIcon,
+	PencilSimpleIcon,
+	GearIcon,
+} from "@phosphor-icons/react";
 import { useUI } from "~/state";
 import { shortDid } from "~/lib/format";
 import { AddAgentModal } from "./AddAgentModal";
@@ -37,16 +43,20 @@ function useEcosystem() {
 	return { list, reload: () => setTick((n) => n + 1) };
 }
 
+const FOLDERS = [
+	{ to: "/inbox", label: "Inbox", icon: TrayIcon },
+	{ to: "/sent", label: "Sent", icon: PaperPlaneTiltIcon },
+] as const;
+
 export function Sidebar() {
-	const scopeFilter = useUI((s) => s.scopeFilter);
-	const setScope = useUI((s) => s.setScope);
 	const agents = useUI((s) => s.agents);
 	const openRegister = useUI((s) => s.openRegister);
+	const openCompose = useUI((s) => s.openCompose);
 	const [showAdd, setShowAdd] = useState(false);
 	const { list: ecosystem, reload: reloadEcosystem } = useEcosystem();
 
 	return (
-		<aside className="flex w-[280px] shrink-0 flex-col border-r border-[--color-border-soft] bg-[--color-sidebar]">
+		<aside className="flex w-[256px] shrink-0 flex-col border-r border-[--color-border-soft] bg-[--color-sidebar]">
 			{/* Brand */}
 			<div className="flex items-center gap-2.5 border-b border-[--color-border-soft] px-4 py-4">
 				<img
@@ -63,82 +73,45 @@ export function Sidebar() {
 				</div>
 			</div>
 
-			{/* Register agent */}
+			{/* Compose — primary action, Gmail-shape */}
 			<div className="px-3 pt-4">
 				<button
 					type="button"
-					onClick={openRegister}
+					onClick={openCompose}
 					className="group flex w-full items-center gap-2 rounded-md bg-[--color-cobalt] px-3 py-2 text-left text-[12px] font-medium text-white shadow-sm transition hover:bg-[--color-cobalt-strong]"
 				>
-					<PlusIcon size={14} weight="bold" />
-					<span>Register agent</span>
-					<span className="ml-auto rounded bg-white/15 px-1 text-[10px] text-white/80">
-						⌘N
-					</span>
+					<PencilSimpleIcon size={14} weight="bold" />
+					<span>Compose</span>
 				</button>
 			</div>
 
-			{/* Agents (running/recent — Step 1 will fold these into the ecosystem) */}
-			<nav className="px-3 pt-4">
-				<div className="px-2 pb-2 text-[10px] uppercase tracking-[0.15em] text-fg-dim">
-					Agents
-				</div>
-				{agents.map((a) => (
+			{/* Folders */}
+			<nav className="px-3 pt-3">
+				{FOLDERS.map((f) => (
 					<NavLink
-						key={a.id}
-						to={`/agents/${a.id}`}
+						key={f.to}
+						to={f.to}
 						className={({ isActive }) =>
 							clsx(
-								"group flex w-full items-center justify-between rounded-md px-2 py-2 text-left transition",
+								"flex w-full items-center gap-3 rounded-md px-3 py-2 text-[13px] transition",
 								isActive
-									? "bg-[--color-cobalt-soft] text-fg"
+									? "bg-[--color-cobalt-soft] font-medium text-fg"
 									: "text-fg-muted hover:bg-[--color-row-hover]",
 							)
 						}
 					>
-						<div className="flex min-w-0 items-center gap-2.5">
-							{a.role === "gateway" ? (
-								<span
-									className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[--color-cobalt] text-[10px] font-semibold text-white"
-									title="Gateway"
-								>
-									GW
-								</span>
-							) : (
-								<img
-									src="/bindu.png"
-									alt=""
-									className="h-7 w-7 shrink-0 select-none"
-									draggable={false}
-									title="Agent (bindu)"
-								/>
-							)}
-							<div className="min-w-0">
-								<div className="truncate text-[13px] text-fg">{a.name}</div>
-								<div className="truncate text-[10px] text-fg-dim">
-									{shortDid(a.did)}
-								</div>
-							</div>
-						</div>
-						{a.needsAttention > 0 ? (
-							<span className="ml-2 rounded-full bg-[--color-sunflower] px-1.5 text-[10px] font-semibold text-yellow-900">
-								{a.needsAttention}
-							</span>
-						) : a.unread > 0 ? (
-							<span className="ml-2 rounded-full bg-slate-200 px-1.5 text-[10px] text-slate-700">
-								{a.unread}
-							</span>
-						) : null}
+						<f.icon size={16} weight="duotone" />
+						<span className="flex-1">{f.label}</span>
 					</NavLink>
 				))}
 			</nav>
 
-			{/* Ecosystem — known agents (webhook-seen + manually added) */}
-			<div className="mt-6 px-3">
-				<div className="flex items-center justify-between px-2 pb-2">
+			{/* Ecosystem — contacts / known agents */}
+			<div className="mt-5 px-3">
+				<div className="flex items-center justify-between px-3 pb-1.5">
 					<div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-fg-dim">
 						<GlobeIcon size={11} weight="bold" />
-						Ecosystem
+						Contacts
 					</div>
 					<button
 						type="button"
@@ -150,8 +123,8 @@ export function Sidebar() {
 					</button>
 				</div>
 				{ecosystem.length === 0 ? (
-					<div className="px-2 py-1 text-[10px] text-fg-dim">
-						No agents yet. Click + to add by URL.
+					<div className="px-3 py-1 text-[10px] text-fg-dim">
+						No contacts. Click + to add.
 					</div>
 				) : (
 					ecosystem.map((a) => {
@@ -160,7 +133,7 @@ export function Sidebar() {
 						return (
 							<div
 								key={a.id}
-								className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left"
+								className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left"
 								title={didId}
 							>
 								<span
@@ -185,31 +158,41 @@ export function Sidebar() {
 				)}
 			</div>
 
-			{/* Scopes */}
-			<div className="mt-6 px-3">
-				<div className="px-2 pb-2 text-[10px] uppercase tracking-[0.15em] text-fg-dim">
-					Scopes
+			{/* Per-agent (debug) — lets devs/auditors inspect one agent's lane */}
+			<div className="mt-5 px-3">
+				<div className="flex items-center gap-1.5 px-3 pb-1.5 text-[10px] uppercase tracking-[0.15em] text-fg-dim">
+					<GearIcon size={11} weight="bold" />
+					Per-agent (debug)
 				</div>
-				{scopes.map((s) => (
-					<button
-						key={s.id}
-						type="button"
-						onClick={() => setScope(s.id)}
-						className={clsx(
-							"flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-[12px] transition",
-							scopeFilter === s.id
-								? "bg-[--color-cobalt-soft] text-fg"
-								: "text-fg-muted hover:bg-[--color-row-hover]",
-						)}
+				{agents.map((a) => (
+					<NavLink
+						key={a.id}
+						to={`/agents/${a.id}`}
+						className={({ isActive }) =>
+							clsx(
+								"flex w-full items-center gap-2.5 rounded-md px-3 py-1 text-left transition",
+								isActive
+									? "bg-[--color-cobalt-soft] text-fg"
+									: "text-fg-muted hover:bg-[--color-row-hover]",
+							)
+						}
 					>
-						<span>#{s.name}</span>
-						<span className="text-[10px] text-fg-dim">{s.count}</span>
-					</button>
+						<span className="text-[11px]">{a.name}</span>
+					</NavLink>
 				))}
 			</div>
 
-			{/* You */}
+			{/* You + Register-agent footer */}
 			<div className="mt-auto border-t border-[--color-border-soft] px-4 py-3">
+				<button
+					type="button"
+					onClick={openRegister}
+					className="mb-2 flex w-full items-center gap-1.5 rounded-md border border-[--color-border-soft] bg-white px-2 py-1 text-[10px] text-fg-muted transition hover:border-[--color-cobalt] hover:text-[--color-cobalt]"
+					title="Register a new local agent (⌘N)"
+				>
+					<PlusIcon size={10} weight="bold" />
+					Register agent
+				</button>
 				<div className="text-[10px] text-fg-dim">
 					You: <span className="text-fg-muted">raahul@getbindu</span>
 				</div>

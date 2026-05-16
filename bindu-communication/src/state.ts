@@ -22,6 +22,7 @@ interface UIState {
 	expandedTraces: Set<string>;
 	scopeFilter: string | null;
 	showRegister: boolean;
+	showCompose: boolean;
 	agents: Agent[];
 	liveEvents: StreamEvent[];
 
@@ -33,6 +34,8 @@ interface UIState {
 	setScope: (id: string | null) => void;
 	openRegister: () => void;
 	closeRegister: () => void;
+	openCompose: () => void;
+	closeCompose: () => void;
 	registerAgent: (draft: NewAgentDraft) => Agent;
 	addLiveEvent: (e: StreamEvent) => void;
 }
@@ -45,6 +48,7 @@ export const useUI = create<UIState>((set) => ({
 	expandedTraces: new Set(["plan-1"]),
 	scopeFilter: null,
 	showRegister: false,
+	showCompose: false,
 	agents: seedAgents,
 	liveEvents: [],
 
@@ -63,6 +67,8 @@ export const useUI = create<UIState>((set) => ({
 		set((s) => ({ scopeFilter: s.scopeFilter === id ? null : id })),
 	openRegister: () => set({ showRegister: true }),
 	closeRegister: () => set({ showRegister: false }),
+	openCompose: () => set({ showCompose: true }),
+	closeCompose: () => set({ showCompose: false }),
 	registerAgent: (draft) => {
 		const id = draft.name
 			.toLowerCase()
