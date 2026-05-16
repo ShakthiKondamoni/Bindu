@@ -114,9 +114,13 @@ export function Sidebar() {
 				))}
 			</nav>
 
-			{/* Ecosystem — contacts / known agents */}
-			<div className="mt-5 px-3">
-				<div className="flex items-center justify-between px-3 pb-1.5">
+			{/* Ecosystem — contacts / known agents.
+			    flex-1 + min-h-0 here so this section consumes the remaining
+			    sidebar height, and the inner list scrolls when the contact
+			    count overflows. Brand / Compose / Folders stay pinned at
+			    the top; Register-agent + You stay pinned at the bottom. */}
+			<div className="mt-5 flex min-h-0 flex-1 flex-col px-3">
+				<div className="flex shrink-0 items-center justify-between px-3 pb-1.5">
 					<div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-fg-dim">
 						<GlobeIcon size={11} weight="bold" />
 						Contacts
@@ -130,40 +134,38 @@ export function Sidebar() {
 						<PlusIcon size={12} weight="bold" />
 					</button>
 				</div>
-				{ecosystem.length === 0 ? (
-					<div className="px-3 py-1 text-[10px] text-fg-dim">
-						No contacts. Click + to add.
-					</div>
-				) : (
-					ecosystem.map((a) => {
-						const name = a.agentCard?.name ?? a.id;
-						const didId = a.did?.id ?? `did:bindu:?:${a.id}`;
-						return (
-							<div
-								key={a.id}
-								className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left"
-								title={didId}
-							>
-								<span
-									className={clsx(
-										"flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold",
-										a.source === "manual"
-											? "bg-[--color-cobalt-soft] text-[--color-cobalt-strong]"
-											: "bg-yellow-100 text-yellow-800",
-									)}
+				<div className="scrollbar min-h-0 flex-1 overflow-y-auto">
+					{ecosystem.length === 0 ? (
+						<div className="px-3 py-1 text-[10px] text-fg-dim">
+							No contacts. Click + to add.
+						</div>
+					) : (
+						ecosystem.map((a) => {
+							const name = a.agentCard?.name ?? a.id;
+							const didId = a.did?.id ?? `did:bindu:?:${a.id}`;
+							return (
+								<div
+									key={a.id}
+									className="flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left"
+									title={didId}
 								>
-									{a.source === "manual" ? "+" : "●"}
-								</span>
-								<div className="min-w-0 flex-1">
-									<div className="truncate text-[12px] text-fg">{name}</div>
-									<div className="truncate text-[10px] text-fg-dim">
-										{shortDid(didId)}
+									<span
+										className="flex h-6 w-6 shrink-0 items-center justify-center text-[15px] leading-none"
+										aria-hidden
+									>
+										🌻
+									</span>
+									<div className="min-w-0 flex-1">
+										<div className="truncate text-[12px] text-fg">{name}</div>
+										<div className="truncate text-[10px] text-fg-dim">
+											{shortDid(didId)}
+										</div>
 									</div>
 								</div>
-							</div>
-						);
-					})
-				)}
+							);
+						})
+					)}
+				</div>
 			</div>
 
 			{/* You + Register-agent footer */}
