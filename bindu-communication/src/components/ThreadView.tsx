@@ -79,8 +79,6 @@ export function ThreadView({ contextId }: Props) {
 						<EventRow
 							key={e.id}
 							event={e}
-							hasChildren={false}
-							indented={false}
 							attentionLane={!!e.needsAttention}
 						/>
 					))

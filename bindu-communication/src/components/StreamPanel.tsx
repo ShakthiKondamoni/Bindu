@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useParams } from "react-router";
 import clsx from "clsx";
 import {
-	PauseIcon,
-	PlayIcon,
 	PencilSimpleIcon,
 	TrayIcon,
 	MagnifyingGlassIcon,
@@ -32,8 +30,6 @@ function useMode(): Mode {
 
 export function StreamPanel() {
 	const mode = useMode();
-	const streamPaused = useUI((s) => s.streamPaused);
-	const togglePause = useUI((s) => s.togglePause);
 	const agents = useUI((s) => s.agents);
 	const liveEvents = useUI((s) => s.liveEvents);
 	const selectedThreadId = useUI((s) => s.selectedThreadId);
@@ -123,30 +119,9 @@ export function StreamPanel() {
 						Compose
 					</button>
 					<div className="flex items-center gap-1.5 text-[11px]">
-						<span
-							className={clsx(
-								"inline-block h-1.5 w-1.5 rounded-full",
-								streamPaused
-									? "bg-yellow-400"
-									: "live-pulse bg-[--color-cobalt]",
-							)}
-						/>
-						<span className="text-fg-muted">
-							{streamPaused ? "paused" : "live"}
-						</span>
+						<span className="live-pulse inline-block h-1.5 w-1.5 rounded-full bg-[--color-cobalt]" />
+						<span className="text-fg-muted">live</span>
 					</div>
-					<button
-						type="button"
-						onClick={togglePause}
-						className="flex items-center gap-1.5 rounded-md border border-[--color-border] bg-white px-2 py-1 text-[11px] text-fg-muted transition hover:border-[--color-cobalt] hover:text-[--color-cobalt]"
-					>
-						{streamPaused ? (
-							<PlayIcon size={11} weight="fill" />
-						) : (
-							<PauseIcon size={11} weight="fill" />
-						)}
-						{streamPaused ? "Resume" : "Pause"}
-					</button>
 				</div>
 			</header>
 			{/* MailboxSplitView — list shrinks to 380px when a thread opens,

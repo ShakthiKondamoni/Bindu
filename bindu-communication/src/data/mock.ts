@@ -1,36 +1,24 @@
-import type { Agent, Counterparty, Scope, StreamEvent } from "~/types";
+import type { Agent, Counterparty, StreamEvent } from "~/types";
 
 export const agents: Agent[] = [
 	{
 		id: "writer",
 		name: "writer-agent",
 		did: "did:bindu:raahul:writer:9f3a-8b2c",
-		unread: 2,
-		needsAttention: 0,
 		role: "agent",
 	},
 	{
 		id: "research",
 		name: "research-agent",
 		did: "did:bindu:raahul:research:b14e-7c9d",
-		unread: 7,
-		needsAttention: 1,
 		role: "agent",
 	},
 	{
 		id: "gateway",
 		name: "gateway",
 		did: "did:bindu:raahul:gateway:47191e40",
-		unread: 0,
-		needsAttention: 0,
 		role: "gateway",
 	},
-];
-
-export const scopes: Scope[] = [
-	{ id: "prod", name: "production", count: 2 },
-	{ id: "test", name: "test/dev", count: 1 },
-	{ id: "paid", name: "payment-handling", count: 1 },
 ];
 
 const newsCurator: Counterparty = {

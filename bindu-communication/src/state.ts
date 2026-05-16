@@ -26,9 +26,6 @@ interface UIState {
 	selectedEventId: string | null;
 	selectedThreadId: string | null;
 	detailTab: DetailTab;
-	streamPaused: boolean;
-	expandedTraces: Set<string>;
-	scopeFilter: string | null;
 	showRegister: boolean;
 	showCompose: boolean;
 	agents: Agent[];
@@ -44,9 +41,6 @@ interface UIState {
 	selectEvent: (id: string | null) => void;
 	selectThread: (contextId: string | null) => void;
 	setDetailTab: (tab: DetailTab) => void;
-	togglePause: () => void;
-	toggleTrace: (id: string) => void;
-	setScope: (id: string | null) => void;
 	openRegister: () => void;
 	closeRegister: () => void;
 	openCompose: () => void;
@@ -121,9 +115,6 @@ export const useUI = create<UIState>((set) => ({
 	selectedEventId: "wa-7",
 	selectedThreadId: null,
 	detailTab: "glance",
-	streamPaused: false,
-	expandedTraces: new Set(["plan-1"]),
-	scopeFilter: null,
 	showRegister: false,
 	showCompose: false,
 	agents: seedAgents,
@@ -151,16 +142,6 @@ export const useUI = create<UIState>((set) => ({
 			};
 		}),
 	setDetailTab: (tab) => set({ detailTab: tab }),
-	togglePause: () => set((s) => ({ streamPaused: !s.streamPaused })),
-	toggleTrace: (id) =>
-		set((s) => {
-			const next = new Set(s.expandedTraces);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return { expandedTraces: next };
-		}),
-	setScope: (id) =>
-		set((s) => ({ scopeFilter: s.scopeFilter === id ? null : id })),
 	openRegister: () => set({ showRegister: true }),
 	closeRegister: () => set({ showRegister: false }),
 	openCompose: () => set({ showCompose: true, composeDraftId: null }),
@@ -189,8 +170,6 @@ export const useUI = create<UIState>((set) => ({
 			id,
 			name: draft.name,
 			did: draft.did,
-			unread: 0,
-			needsAttention: 0,
 			role: draft.role,
 		};
 		set((s) => ({ agents: [...s.agents, newAgent], showRegister: false }));
@@ -266,8 +245,6 @@ export const useUI = create<UIState>((set) => ({
 							id: e.agentId,
 							name: e.agentId,
 							did: `did:bindu:?:${e.agentId}`,
-							unread: 0,
-							needsAttention: 0,
 							role: "agent" as const,
 						},
 					];

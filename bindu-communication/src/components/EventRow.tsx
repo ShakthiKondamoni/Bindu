@@ -1,24 +1,18 @@
 import clsx from "clsx";
-import { CaretDownIcon, CaretRightIcon } from "@phosphor-icons/react";
 import { useUI } from "~/state";
 import { kindGlyph, shortDid, stateMeta, trustMeta } from "~/lib/format";
 import type { StreamEvent } from "~/types";
 
 interface Props {
 	event: StreamEvent;
-	hasChildren: boolean;
-	indented: boolean;
 	attentionLane: boolean;
 }
 
-export function EventRow({ event, hasChildren, indented, attentionLane }: Props) {
+export function EventRow({ event, attentionLane }: Props) {
 	const selectedEventId = useUI((s) => s.selectedEventId);
 	const selectEvent = useUI((s) => s.selectEvent);
-	const expandedTraces = useUI((s) => s.expandedTraces);
-	const toggleTrace = useUI((s) => s.toggleTrace);
 
 	const isSelected = selectedEventId === event.id;
-	const isExpanded = expandedTraces.has(event.id);
 	const tb = trustMeta[event.counterparty.trust];
 	const sb = event.state ? stateMeta[event.state] : null;
 
@@ -31,7 +25,6 @@ export function EventRow({ event, hasChildren, indented, attentionLane }: Props)
 				isSelected
 					? "bg-[--color-cobalt-soft]"
 					: "hover:bg-[--color-row-hover]",
-				indented && "pl-14",
 				attentionLane && !isSelected && "bg-yellow-50/40",
 			)}
 		>
@@ -41,29 +34,6 @@ export function EventRow({ event, hasChildren, indented, attentionLane }: Props)
 
 			<div className="min-w-0 flex-1">
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-					{hasChildren && (
-						<span
-							role="button"
-							tabIndex={0}
-							onClick={(e) => {
-								e.stopPropagation();
-								toggleTrace(event.id);
-							}}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" || e.key === " ") {
-									e.stopPropagation();
-									toggleTrace(event.id);
-								}
-							}}
-							className="-ml-1 inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded text-fg-dim hover:bg-slate-200 hover:text-fg"
-						>
-							{isExpanded ? (
-								<CaretDownIcon size={10} weight="bold" />
-							) : (
-								<CaretRightIcon size={10} weight="bold" />
-							)}
-						</span>
-					)}
 					<span className="text-[13px] text-fg">{event.counterparty.name}</span>
 					<span className="text-[10px] text-fg-dim">
 						{shortDid(event.counterparty.did)}

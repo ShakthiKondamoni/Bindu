@@ -242,7 +242,7 @@ function ActionPanel({
 	actionLabel,
 }: {
 	eventId: string;
-	actionKind: "approve" | "decline" | "input" | "pay";
+	actionKind: "approve" | "input" | "pay";
 	actionLabel: string;
 }) {
 	const [text, setText] = useState("");
@@ -307,16 +307,14 @@ function ActionPanel({
 				>
 					{status === "sending" ? "Sending…" : actionLabel}
 				</button>
-				{actionKind !== "decline" && (
-					<button
-						type="button"
-						disabled={status === "sending"}
-						onClick={() => send("decline")}
-						className="rounded-md border border-[--color-border] bg-white px-3 py-1.5 text-[12px] text-fg-muted transition hover:border-[--color-cobalt] hover:text-[--color-cobalt]"
-					>
-						Decline
-					</button>
-				)}
+				<button
+					type="button"
+					disabled={status === "sending"}
+					onClick={() => send("decline")}
+					className="rounded-md border border-[--color-border] bg-white px-3 py-1.5 text-[12px] text-fg-muted transition hover:border-[--color-cobalt] hover:text-[--color-cobalt]"
+				>
+					Decline
+				</button>
 			</div>
 			{status === "delivered" && (
 				<div className="mt-2 text-[10px] text-emerald-700">

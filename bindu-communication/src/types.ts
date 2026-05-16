@@ -26,15 +26,7 @@ export interface Agent {
 	id: string;
 	name: string;
 	did: string;
-	unread: number;
-	needsAttention: number;
 	role: AgentRole;
-}
-
-export interface Scope {
-	id: string;
-	name: string;
-	count: number;
 }
 
 export interface Counterparty {
