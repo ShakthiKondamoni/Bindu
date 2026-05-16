@@ -1,18 +1,28 @@
 import clsx from "clsx";
-import { WarningIcon } from "@phosphor-icons/react";
+import { ArrowBendUpLeftIcon, TrayIcon } from "@phosphor-icons/react";
 import { useUI } from "~/state";
 import {
 	groupByThread,
 	shortContextId,
 	type Thread,
 } from "~/lib/threads";
-import { kindGlyph, stateMeta } from "~/lib/format";
 import type { StreamEvent } from "~/types";
 
 interface Props {
 	events: StreamEvent[];
 }
 
+const OUTBOX_AGENT_ID = "outbox";
+
+/**
+ * Gmail-shape thread list. Each row mirrors the agentic-inbox layout:
+ *
+ *   • dot · sender · count · needs-reply · date
+ *                                            subject — snippet
+ *
+ * Unread / needs-reply both reduce to "thread has at least one event in
+ * an attention state" for now; a proper read-state tracker comes later.
+ */
 export function ThreadList({ events }: Props) {
 	const selectThread = useUI((s) => s.selectThread);
 	const selectEvent = useUI((s) => s.selectEvent);
@@ -20,14 +30,17 @@ export function ThreadList({ events }: Props) {
 
 	if (threads.length === 0) {
 		return (
-			<div className="flex h-40 items-center justify-center text-[12px] text-fg-dim">
-				No conversations yet for this agent.
+			<div className="flex flex-col items-center justify-center px-6 py-24 text-center">
+				<TrayIcon size={48} weight="thin" className="mb-4 text-fg-dim" />
+				<h3 className="mb-1 text-[15px] font-semibold text-fg">
+					Nothing to show
+				</h3>
+				<p className="max-w-xs text-[12px] text-fg-muted">
+					When a thread arrives in this folder, it'll appear here.
+				</p>
 			</div>
 		);
 	}
-
-	const attention = threads.filter((t) => t.attentionCount > 0);
-	const regular = threads.filter((t) => t.attentionCount === 0);
 
 	function open(t: Thread) {
 		selectThread(t.contextId);
@@ -35,97 +48,123 @@ export function ThreadList({ events }: Props) {
 	}
 
 	return (
-		<>
-			{attention.length > 0 && (
-				<section className="border-b border-yellow-300/60 bg-yellow-50/60">
-					<div className="flex items-center justify-between px-6 pb-2 pt-3">
-						<div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.15em] text-yellow-800">
-							<WarningIcon size={12} weight="fill" />
-							Needs Attention ({attention.length})
-						</div>
-						<span className="text-[10px] text-fg-dim">
-							threads waiting for your input
-						</span>
-					</div>
-					{attention.map((t) => (
-						<ThreadRow key={t.contextId} thread={t} attentionLane onOpen={open} />
-					))}
-				</section>
-			)}
-
-			<div className="px-6 pb-2 pt-4 text-[10px] uppercase tracking-[0.15em] text-fg-dim">
-				Inbox
-			</div>
-			{regular.map((t) => (
-				<ThreadRow key={t.contextId} thread={t} attentionLane={false} onOpen={open} />
+		<div>
+			{threads.map((t) => (
+				<ThreadRow key={t.contextId} thread={t} onOpen={open} />
 			))}
-		</>
+		</div>
 	);
 }
 
 function ThreadRow({
 	thread,
-	attentionLane,
 	onOpen,
 }: {
 	thread: Thread;
-	attentionLane: boolean;
 	onOpen: (t: Thread) => void;
 }) {
 	const e = thread.latest;
-	const sb = e.state ? stateMeta[e.state] : null;
+	const isUnread = thread.attentionCount > 0; // proxy: pending attention = unread
+	const isOutbound = e.agentId === OUTBOX_AGENT_ID;
+
+	// Sender / recipient label: in /inbox we show "From: name"; in /sent
+	// the latest event is outbound so we show "To: name".
+	const counterpartyName =
+		e.counterparty.name === "task"
+			? shortContextId(thread.contextId)
+			: e.counterparty.name;
+	const fromLabel = isOutbound ? `To: ${counterpartyName}` : counterpartyName;
+
+	// Subject = first message's text if we know it (outbound has text on
+	// the payload), otherwise the latest summary. Snippet = latest summary.
+	const subject = subjectFor(thread);
+	const snippet = e.summary;
+
 	return (
 		<button
 			type="button"
 			onClick={() => onOpen(thread)}
 			className={clsx(
-				"group flex w-full items-start gap-3 border-b border-[--color-border-soft] px-6 py-3 text-left transition hover:bg-[--color-row-hover]",
-				attentionLane && "bg-yellow-50/40",
+				"group flex w-full cursor-pointer items-center gap-3 border-b border-[--color-border-soft] px-4 py-2.5 text-left transition hover:bg-[--color-row-hover] md:px-6 md:py-3",
+				isUnread && "bg-yellow-50/40",
 			)}
 		>
-			<span className="mt-0.5 w-4 shrink-0 text-center text-[14px] text-fg-dim">
-				{kindGlyph[e.kind]}
-			</span>
+			{/* Unread dot */}
+			<div className="flex w-2.5 shrink-0 justify-center">
+				{isUnread && (
+					<span className="h-2 w-2 rounded-full bg-[--color-cobalt]" />
+				)}
+			</div>
 
+			{/* Content */}
 			<div className="min-w-0 flex-1">
-				<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-					<span className="text-[13px] text-fg">
-						{e.counterparty.name === "task"
-							? `Thread ${shortContextId(thread.contextId)}`
-							: e.counterparty.name}
+				<div className="flex items-center gap-2">
+					<span
+						className={clsx(
+							"truncate text-[13px]",
+							isUnread
+								? "font-semibold text-fg"
+								: "text-fg-muted",
+						)}
+					>
+						{fromLabel}
 					</span>
-					<span className="text-[10px] text-fg-dim">
-						{shortContextId(thread.contextId)}
-					</span>
-					{sb && e.state && (
-						<span
-							className={clsx(
-								"rounded border px-1 text-[9px] uppercase tracking-wide",
-								sb.bg,
-								sb.color,
-								sb.border,
-							)}
-						>
-							{e.state}
-						</span>
-					)}
 					{thread.totalCount > 1 && (
-						<span className="rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-700">
+						<span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700">
 							{thread.totalCount}
 						</span>
 					)}
-				</div>
-				<div className="mt-0.5 truncate text-[12px] text-fg-muted">{e.summary}</div>
-			</div>
-
-			<div className="flex shrink-0 flex-col items-end gap-1">
-				<span className="text-[10px] text-fg-dim">{e.relTs}</span>
-				{thread.attentionCount > 0 && (
-					<span className="rounded-md bg-[--color-sunflower] px-2 py-0.5 text-[10px] font-medium text-yellow-900 group-hover:bg-[--color-sunflower-strong]">
-						{thread.attentionCount} need{thread.attentionCount === 1 ? "s" : ""} you
+					{isUnread && (
+						<span
+							className="shrink-0 text-[--color-sunflower-strong]"
+							title="Needs your reply"
+						>
+							<ArrowBendUpLeftIcon size={12} weight="bold" />
+						</span>
+					)}
+					<span className="ml-auto shrink-0 text-[11px] text-fg-dim">
+						{e.relTs}
 					</span>
-				)}
+				</div>
+				<div className="mt-0.5 truncate text-[12px]">
+					<span
+						className={clsx(
+							isUnread ? "font-medium text-fg" : "text-fg-muted",
+						)}
+					>
+						{subject}
+					</span>
+					{snippet && snippet !== subject && (
+						<span className="text-fg-dim"> — {snippet}</span>
+					)}
+				</div>
 			</div>
 		</button>
 	);
 }
+
+/**
+ * Best-effort "subject line" for a thread:
+ * - if the conversation contains an outbound event with a `text` body, use that
+ *   (that's the operator's first prompt — true subject in Gmail terms).
+ * - else fall back to a Thread-id-style label.
+ *
+ * We can't know the subject of an inbound-only conversation without the
+ * recipient's task body. That's the data gap we flagged in Step 1.
+ */
+function subjectFor(thread: Thread): string {
+	const e = thread.latest;
+	try {
+		const p = e.payload ? JSON.parse(e.payload) : null;
+		if (p?.text && typeof p.text === "string") {
+			return p.text;
+		}
+	} catch {
+		// no-op
+	}
+	if (e.counterparty.name === "task") {
+		return `Thread ${shortContextId(thread.contextId)}`;
+	}
+	return e.summary;
+}
+
