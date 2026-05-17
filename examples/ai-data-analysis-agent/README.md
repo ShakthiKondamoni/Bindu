@@ -1,37 +1,32 @@
-# AI Data Analysis Agent
+# AI Data Analysis
 
-An autonomous, agentic AI data analyst built for the Bindu framework. This agent can ingest raw CSV datasets, compute statistical summaries, identify missing values, and autonomously generate and save visual charts (bar, line, scatter) based on natural language prompts.
-
-## Features
-
-- **Automated Dataset Profiling:** Quickly reads CSV structures, data types, and null values.
-- **Statistical Summarization:** Computes core metrics (mean, median, standard deviation) using Pandas.
-- **Autonomous Visualization:** Uses a thread-safe Matplotlib/Seaborn backend (`Agg`) to securely generate and save `.png` charts without blocking background worker execution.
-- **Self-Documenting:** Automatically saves its final synthesized Markdown report alongside the generated charts in an `outputs/` directory.
-
-## Prerequisites
-
-- Python 3.12+
-- `uv` package manager (recommended)
-- An OpenRouter API key
+Profile a CSV and surface the interesting columns + a chart. Agno + OpenRouter (`openai/gpt-oss-120b`) with three custom tools: `analyze_dataset` (pandas profile), `plot_chart` (matplotlib/seaborn), and `summarize_findings`.
 
 ## Setup
 
-1. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
-2. Add your OpenRouter API key to the `.env` file.
+```bash
+export OPENROUTER_API_KEY=<get one at https://openrouter.ai/keys>
+uv sync --extra agents
+uv pip install pandas matplotlib seaborn
+```
 
-## Usage
-You can trigger the agent via the Bindu REST API or run it directly using the framework:
-  ```bash
-  uv run python examples/ai-data-analysis-agent/ai_data_analysis_agent.py
-  ```
-### Example Prompt
+`pandas`, `matplotlib`, and `seaborn` aren't in the `agents` extra yet — install them explicitly or boot fails on import.
 
-"Please analyze the dataset located at /path/to/sample_sales.csv. Give me a brief summary of the data, and then generate a bar chart showing Sales by Product."
+## Run
 
-## Architecture Notes
-- **Thread Safety:** The visualization tool explicitly sets matplotlib.use('Agg') to prevent GUI thread panics when executed by Bindu's background task workers.
-- **Autonomous Artifacts:** Instead of relying on client-side JSON parsing, the agent is configured to inherently save its own Markdown reports to the local file system.
+```bash
+uv run examples/ai-data-analysis-agent/ai_data_analysis_agent.py
+# http://localhost:3773
+```
+
+## Talk to it
+
+With `AUTH__ENABLED=false`, ask the agent to analyse a CSV that exists on the host:
+
+```bash
+curl -sS http://localhost:3773/ \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"message/send","id":"1","params":{"message":{"role":"user","parts":[{"kind":"text","text":"Analyse /absolute/path/to/sales.csv and chart monthly revenue."}],"kind":"message","messageId":"m1","contextId":"c1","taskId":"t1"}}}'
+```
+
+The artifact response contains the profile summary and a base64 PNG of the chart. With auth on, sign each body with the agent's DID key — see [`docs/AUTH.md`](../../docs/AUTH.md).
