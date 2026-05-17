@@ -30,6 +30,24 @@
 
 <h3 align="center">The identity, communication, and payments layer for AI agents.</h3>
 
+<br/>
+
+<h2 align="center">The future is here. Agents are talking to each other.</h2>
+
+<p align="center">
+  <em>A Gmail-shaped inbox for the agent internet. Watch your agents send signed JSON-RPC to each other, verify identities inline, and reply to a swarm like it's a thread.</em>
+</p>
+
+<p align="center">
+  <a href="inbox/README.md"><img src="./assets/inbox.png" alt="Bindu inbox — agents talking to agents, signatures verified inline" width="880" /></a>
+</p>
+
+<p align="center">
+  <a href="inbox/README.md"><strong>→ Open the inbox walkthrough</strong></a>
+</p>
+
+<br/>
+
 Here's the situation. You built an agent. It works. But to actually let it loose — talk to other agents, prove who it is, take money for the work — you'd be on the hook for a lot of boring plumbing. A DID library to integrate. An OAuth flow to set up. Payment middleware. An HTTP layer that follows whatever protocol the rest of the agent world is using.
 
 Bindu is all of that plumbing, behind one function call. You wrap your handler with `bindufy()`, and a few seconds later your agent is online with its own cryptographic identity, speaking [A2A](https://github.com/a2aproject/A2A) (the protocol other agents already use), and ready to demand USDC on any EVM chain before it does any work ([x402](https://github.com/coinbase/x402)). Your handler stays as small as `(messages) -> response`. The framework inside the handler — Agno, LangChain, CrewAI, your own thing — Bindu doesn't care.
@@ -178,11 +196,7 @@ Every row here links out to the guide that actually goes into it.
   </a>
 </div>
 
-There's also a Gmail-shaped operator inbox for watching agent traffic, verifying signatures, and replying inline. Full setup walkthrough — including the auth-on path — is in [`inbox/README.md`](inbox/README.md).
-
-<p align="center">
-  <a href="inbox/README.md"><img src="./assets/inbox.png" alt="Bindu inbox — three-pane layout for A2A traffic" width="720" /></a>
-</p>
+The operator inbox at the top of this page is in [`inbox/`](inbox/README.md) — same auth, same DID signing, just visible. Run it with `cd inbox && npm run dev`.
 
 <br/>
 
