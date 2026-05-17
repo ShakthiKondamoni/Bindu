@@ -59,7 +59,17 @@ That's your identity from now on. Every outbound message the inbox sends is bear
 
 ### 3 · Add a peer
 
-Sidebar → **Contacts** → **+** → paste the URL of any bindufy agent (e.g. `http://localhost:3773` if you've got one of the examples running). The inbox fetches `/.well-known/agent.json` and records the DID. If the peer has `AUTH__ENABLED=true`, it'll be tagged `protected`.
+You need at least one other agent to talk to. If you don't already have one running, the inbox ships a script that spawns two single-purpose demo agents (a joke teller on `5773` and a poet on `5776`) with auth on:
+
+```bash
+./scripts/spawn-demo-peers.sh
+```
+
+It prints the URLs ready to paste. Then in the UI: sidebar → **Contacts** → **+** → paste `http://127.0.0.1:5773`, then again for `http://127.0.0.1:5776`. The inbox fetches `/.well-known/agent.json`, records each DID, and tags them `protected` because they're running with `AUTH__ENABLED=true`.
+
+Stop them later with `./scripts/stop-demo-peers.sh`.
+
+Bringing your own agent works the same way — any bindufy URL is a valid peer.
 
 ### 4 · Send your first message
 
