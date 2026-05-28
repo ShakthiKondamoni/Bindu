@@ -157,6 +157,8 @@ That's it — Bindu picks it up at startup. For production though, please read t
 
 Here's the most useful thing you can do to understand how this whole flow hangs together: run it locally with a fake facilitator that always says yes. No wallet, no real money, no blockchain — just your agent, a stub facilitator, and curl.
 
+> **Already-built version:** [`tests/e2e/x402_scenarios/`](../tests/e2e/x402_scenarios/) has a one-command driver that boots a programmable fake facilitator plus an echo agent and walks through all four failure modes from issue [#562](https://github.com/GetBindu/Bindu/issues/562) (drain attack, settle timeout, parallel-nonce race, replay). Run it with `uv run python tests/e2e/x402_scenarios/run_e2e.py` to see real HTTP responses + task metadata for each scenario. The walkthrough below is the same idea, broken apart so you can follow along by hand.
+
 We'll do it in three small files. Open three terminals.
 
 ### Step 1 — a fake facilitator
@@ -471,8 +473,8 @@ That's it. Same code, same wallet, same payment shape — just real USDC on Base
 * **Each new task needs a new payment.** A finished task doesn't grant credit toward the next one. Within a single conversation, the same caller pays per task. If a task returns `"input_required"`, no new payment is needed to continue *that* task — but completing it and starting another is a fresh payment.
 * **Watch the facilitator.** If the facilitator goes down, your paid endpoints can't accept new requests. Either run your own, or accept the dependency consciously.
 * **Sessions expire.** A payment session — the browser flow where a caller clicks through MetaMask — expires after 60 seconds by default. Configurable.
-* **Verify is not settle.** When a caller sends `X-PAYMENT`, the facilitator's `/verify` confirms the signature is good and the wallet has enough USDC *right now*. The actual on-chain transfer happens later, when the task completes and Bindu calls `/settle`. Between those two calls, three things can go wrong: the payer drains the wallet to somewhere else, the facilitator can't broadcast, or the EIP-3009 `validBefore` window expires. In all three cases the work has already run — and as of [#562](https://github.com/GetBindu/Bindu/pull/562), Bindu refuses to deliver the artifact. The task ends in `failed`, no artifact is pushed, and `task.metadata` carries the EIP-3009 `nonce` and signed authorization so an operator can reconcile against the chain.
-* **Parallel-nonce double-spend is a known gap.** A payer with $1 USDC who sends two requests in parallel — each with a *different* nonce — passes verify twice (both see the same $1 balance). The first `/settle` succeeds, the second reverts on insufficient balance. The replay defense in `nonce_store.py` only catches identical nonces, not parallel ones. You eat the LLM cost of the second call. Two mitigations if this hurts you: keep `max_timeout_seconds` short so the window for parallel calls is small, or run your own facilitator with balance reservation.
+* **Bindu settles before it runs your agent.** Order of operations on a paid request: `/verify` (in middleware, ~100ms) → `/settle` (in the worker, ~2-5s) → your agent runs → artifact delivered. We settle *first* — before any LLM call — so a failed settlement costs you zero LLM tokens. Funds are debited on-chain before the agent does any work. Latency-wise this is a wash: settle takes 2-5s on Base, your agent typically takes 1-30s, and the user waits for the whole thing either way. This matches what [Google's A2A x402 extension](https://github.com/google-agentic-commerce/a2a-x402/blob/main/spec/v0.2/spec.md) does for the same reason. Note that Coinbase's reference `x402-express` middleware uses the *opposite* order — that pattern is fine for fast API endpoints (sub-second) but not for agent workloads, where the verify-vs-settle gap is wide enough to drive a truck through.
+* **Work failure after a successful settle is an "orphan payment."** Because we settle first, if your agent raises mid-execution the payer has *already* been debited on-chain. x402 has no native refund primitive, so Bindu can't reverse the transfer automatically. The task ends in `failed` with `task.metadata["x402.payment.status"] = "payment-orphaned"`, and the EIP-3009 `nonce` + signed authorization + tx receipts are persisted. You — the operator — are responsible for issuing a manual USDC transfer back to the payer if you want to refund. Treat orphan payments as the rare bug they should be: each one is a hard signal that something failed inside your agent code that shouldn't have.
 
 ## When something doesn't work
 
@@ -480,7 +482,8 @@ That's it. Same code, same wallet, same payment shape — just real USDC on Base
 * `"error": "Payment verification failed"` → the facilitator said no. Either the signature is wrong, the chain is wrong, or your facilitator doesn't know the chain you're asking for. Check the agent's server logs for the underlying error.
 * `"error": "Payment nonce already used (replay)"` → the caller is sending the same authorization twice. They need to sign a fresh one for each request.
 * `"error": "No matching payment requirements found"` → the payment payload doesn't match anything in your `execution_cost`. Usually a network or asset mismatch.
-* Task ends in `failed` with message `Payment settlement failed; output withheld.` → verify passed but `/settle` did not. Look at `task.metadata` — `x402.payment.error` is the facilitator's reason, `x402_nonce` and `x402_authorization` are what you need to ask the facilitator whether the on-chain transfer actually went through.
+* Task ends in `failed` with message `Payment settlement failed; task not executed.` → verify passed but `/settle` did not, so we didn't run your agent. No LLM cost, no artifact. Look at `task.metadata` — `x402.payment.error` is the facilitator's reason; `x402_nonce`, `x402_authorization`, and `x402_network` are the fields you need if you want to ask the facilitator whether the on-chain transfer actually went through (rare facilitator-timeout / chain-confirmation race).
+* Task ends in `failed` with `metadata["x402.payment.status"] == "payment-orphaned"` → settle succeeded (the payer was debited), but your agent code raised. The tx hash is in `x402.payment.receipts`. If you want to refund the payer, issue a manual USDC transfer back to the address in `x402_authorization.from`.
 
 ## Where to look in the code
 
@@ -488,8 +491,10 @@ If you want to read the actual implementation:
 
 * The middleware that does the 402 gatekeeping: [`bindu/server/middleware/x402/x402_middleware.py`](../bindu/server/middleware/x402/x402_middleware.py)
 * The nonce store that catches replays: [`bindu/server/middleware/x402/nonce_store.py`](../bindu/server/middleware/x402/nonce_store.py)
+* Where settle-first lives (and where orphan payments get tagged): [`bindu/server/workers/manifest_worker.py`](../bindu/server/workers/manifest_worker.py) (search for `_settle_payment` and `_handle_settlement_failure`)
 * How payment requirements get built from your config: [`bindu/server/applications.py`](../bindu/server/applications.py) (search for `_create_payment_requirements`)
-* The tests, which double as the most accurate spec: [`tests/unit/server/middleware/x402/`](../tests/unit/server/middleware/x402/)
+* Middleware tests, which double as the most accurate spec: [`tests/unit/server/middleware/x402/`](../tests/unit/server/middleware/x402/)
+* End-to-end failure-mode demo: [`tests/e2e/x402_scenarios/`](../tests/e2e/x402_scenarios/) — runnable subprocess driver that exercises all four #562 scenarios against a real agent + programmable fake facilitator
 
 ## Related
 
