@@ -4,18 +4,19 @@ Run:
     python medical_agent.py
 """
 
-import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 from agno.agent import Agent
 from agno.models.openrouter import OpenRouter
 from agno.tools.duckduckgo import DuckDuckGoTools
 from bindu.penguin.bindufy import bindufy
+from bindu.settings import app_settings
 
-from pathlib import Path
 load_dotenv(Path(__file__).parent / ".env")
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+OPENROUTER_API_KEY = app_settings.OPENROUTER_API_KEY
 
 if not OPENROUTER_API_KEY:
     raise RuntimeError(
@@ -85,7 +86,9 @@ def handler(messages: list[dict[str, str]]) -> str:
     if isinstance(latest_message, dict):
         user_message = latest_message.get("content", "")
     else:
-        user_message = str(latest_message)
+        user_message = latest_message
+
+    user_message = "" if user_message is None else str(user_message)
 
     if not user_message.strip():
         return (
